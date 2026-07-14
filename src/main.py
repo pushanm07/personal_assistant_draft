@@ -1,4 +1,5 @@
 from actions.spotify import open_spotify
+from actions.apps import open_chrome, open_vscode
 
 # Action Registry
 actions = {
@@ -7,6 +8,12 @@ actions = {
     "open spotify": open_spotify,
     "tunes": open_spotify,
     "jams": open_spotify,
+    "chrome": open_chrome,
+    "open chrome": open_chrome,
+    "vscode": open_vscode,
+    "vs code": open_vscode,
+    "open vscode": open_vscode,
+    "open vs code": open_vscode,
 }
 
 
