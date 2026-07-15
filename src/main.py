@@ -1,5 +1,6 @@
 from actions.spotify import open_spotify
 from actions.apps import open_chrome, open_vscode
+from actions.instagram import send_message_instagram
 
 # Action Registry
 actions = {
@@ -14,6 +15,9 @@ actions = {
     "vs code": open_vscode,
     "open vscode": open_vscode,
     "open vs code": open_vscode,
+    "instagram": send_message_instagram,
+    "message": send_message_instagram,
+    "dm": send_message_instagram
 }
 
 
@@ -35,6 +39,9 @@ def main():
         # Normal conversation
         elif command == "hello":
             print("Hello, Sir.")
+        
+        elif command in ["instagram", "message", "dm"]:
+            send_message_instagram()
 
         # Registered actions
         elif command in actions:
