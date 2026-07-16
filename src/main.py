@@ -1,3 +1,4 @@
+
 from actions.spotify import (
     authenticate_spotify,
     next_song,
@@ -10,8 +11,11 @@ from actions.spotify import (
 from actions.apps import open_chrome, open_vscode
 from actions.instagram import send_message_instagram
 from brain.brain import Brain
+from voice.record import record_voice
+from voice.transcribe import transcribe_audio
 
 brain = Brain()
+
 
 BRAIN_ACTIONS = {
     "open_spotify": open_spotify,
@@ -54,7 +58,11 @@ def main():
     print("================================")
 
     while True:
-        command = input("What can I do for you? ").lower().strip()
+
+        record_voice()
+        print("Recording complete.")
+        command = transcribe_audio().lower().strip()
+       
 
         # Exit commands
         if command in ["exit", "quit", "bye", "see ya", "go to sleep"]:
