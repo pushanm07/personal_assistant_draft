@@ -1,0 +1,4 @@
+.spotify_token_cache
+config/spotify.json
+__pycache__/
+*.pyc

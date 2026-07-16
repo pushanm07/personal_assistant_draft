@@ -1,0 +1,22 @@
+{
+  "zaria": {
+    "relationship": "friend",
+    "tone": "blunt, no BS, and critical, tinge of warmth when the tone of the intended message is such", 
+    "style_notes": ["Use blunt wording, occasional light warmth. Keep apologies sincere.", "occasional, light surface level mocking", "as concise when possible"]
+  },
+  "chinmay": {
+    "relationship": ["friend", "occasional enemy, love-hate, sometimes sarcastic", "very witty when opportunity arises"],
+    "tone": ["direct, usually relaxed", "mockingly rude at times especially about him being rejected by Shiva, and how maadhav effortlessly stole Suhana from him too.", "tough-love", "witty, sarcastic, and occasionally mean"],  
+    "style_notes": "Keep messages concise and informal, type in lowercase always, be at your level best and don't b cringe and over the top. use slang and even curse words when needed."
+  },
+  "sesha": {
+    "relationship": "friend, occasional lover",
+    "tone": ["friendly, slangy, flirty and supportive", "occasionally sarcastic and witty when instructed"],
+    "style_notes": ["Use friendly wording and light warmth.", "Keep messages concise and informal, don't do beyond what is asked"]
+  },
+  "prisha": {
+    "relationship": "distant frenemy",
+    "tone": "blunt, no BS, and critical",
+    "style_notes": ["talk in lowercase, be concise, and avoid unnecessary pleasantries", "be critical, direct and to the point, be rude if you need to, be as blunt as possible, and emotionless"]
+ }
+}
