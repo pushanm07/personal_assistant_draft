@@ -1,4 +1,6 @@
-
+from actions.apps import open_chrome, open_vscode
+from actions import instagram, whatsapp
+from actions.instagram import send_message_instagram
 from actions.spotify import (
     authenticate_spotify,
     next_song,
@@ -8,49 +10,60 @@ from actions.spotify import (
     previous_song,
     resume_song,
 )
-from actions.apps import open_chrome, open_vscode
-from actions.instagram import send_message_instagram
+from actions.web import answer_question
 from brain.brain import Brain
-from voice.record import record_voice
-from voice.transcribe import transcribe_audio
+from actions.whatsapp import send_message_whatsapp
 
 brain = Brain()
 
 
+def route_message(
+    recipient: str,
+    message: str | None = None,
+    platform: str = "auto",
+) -> None:
+    """Send a message on the right platform.
+
+    - platform == "whatsapp": go straight to WhatsApp.
+    - platform == "instagram": go straight to Instagram.
+    - platform == "auto" (default, e.g. "message"/"dm" with no app named):
+      try Instagram contacts first, then WhatsApp, else say we can't find them.
+    """
+    if platform == "whatsapp":
+        send_message_whatsapp(recipient, message)
+        return
+
+    if platform == "instagram":
+        send_message_instagram(recipient, message)
+        return
+
+    if instagram.has_contact(recipient):
+        send_message_instagram(recipient, message)
+    elif whatsapp.has_contact(recipient):
+        send_message_whatsapp(recipient, message)
+    else:
+        print(
+            f"I don't have a contact named {recipient} on Instagram or WhatsApp, Sir."
+        )
+
+
 BRAIN_ACTIONS = {
-    "open_spotify": open_spotify,
+    "spotify": open_spotify,
+    "chrome": open_chrome,
+    "vscode": open_vscode,
     "play_song": play_song,
     "pause_song": pause_song,
     "resume_song": resume_song,
     "previous_song": previous_song,
     "next_song": next_song,
-    "open_chrome": open_chrome,
-    "open_vscode": open_vscode,
-}
-
-# Action Registry
-actions = {
-    "spotify": open_spotify,
-    "music": open_spotify,
-    "open spotify": open_spotify,
-    "tunes": open_spotify,
-    "jams": open_spotify,
-    "authenticate spotify": authenticate_spotify,
-    "connect spotify": authenticate_spotify,
-    "chrome": open_chrome,
-    "open chrome": open_chrome,
-    "vscode": open_vscode,
-    "vs code": open_vscode,
-    "open vscode": open_vscode,
-    "open vs code": open_vscode,
-    "instagram": send_message_instagram,
-    "message": send_message_instagram,
-    "dm": send_message_instagram,
-    "pause" : pause_song,
+    "authenticate_spotify": authenticate_spotify,
+    "answer_question": answer_question,
+    "send_whatsapp_message": send_message_whatsapp,
+    "send_instagram_message": send_message_instagram,
 }
 
 
-def main():
+def main() -> None:
     print("================================")
     print("          ALANA")
     print("Initializing...")
@@ -58,32 +71,25 @@ def main():
     print("================================")
 
     while True:
-
-        record_voice()
-        print("Recording complete.")
-        command = transcribe_audio().lower().strip()
-       
-
-        # Exit commands
-        if command in ["exit", "quit", "bye", "see ya", "go to sleep"]:
-            print("Goodbye, Sir.") 
+        try:
+            command = input("what can I do for you, Sir?").strip()
+        except EOFError:
+            print("Goodbye, Sir.")
             break
 
-        # Normal conversation
-        elif command == "hello":
+        if not command:
+            continue
+
+        if command.lower() in {"exit", "quit", "bye", "see ya", "go to sleep"}:
+            print("Goodbye, Sir.")
+            break
+
+        if command.lower() == "hello":
             print("Hello, Sir.")
-        
-        elif command in ["instagram", "message", "dm","ask"]:
-            send_message_instagram()
+            continue
 
-        # Registered actions
-        elif command in actions:
-            actions[command]()
-
-        # Unknown command
-        else:
-            if not brain.execute(command, BRAIN_ACTIONS, send_message_instagram):
-                print("I don't recognize an action for that yet, Sir.")
+        if not brain.execute(command, BRAIN_ACTIONS, route_message):
+            print("I don't recognize an action for that yet, Sir.")
 
 
 if __name__ == "__main__":

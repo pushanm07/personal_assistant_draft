@@ -1,10 +1,10 @@
-from email.mime import audio
+#from email.mime import audio
 
-import sounddevice as sd
-import soundfile as sf
+#import sounddevice as sd
+#import soundfile as sf
 
 
-def record_voice():
+#def record_voice():
      duration = 5
      samplerate = 16000
      print("Alana's listening...")

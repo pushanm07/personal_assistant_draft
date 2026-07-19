@@ -1,0 +1,14 @@
+ {   
+    "actions" = [
+        "open_spotify",
+        "play_song",
+        "pause_song",
+        "resume_song",
+        "previous_song",
+        "next_song",
+        "open_chrome",
+        "open_vscode",
+        "send_message",
+        "none"
+    ]
+ }

@@ -11,6 +11,13 @@ user = {
 
 }
 
+def has_contact(name: str | None) -> bool:
+    """Return True when *name* is a known Instagram contact."""
+    if not name:
+        return False
+    return name.lower().strip() in user
+
+
 def send_message_instagram(name: str | None = None, mes: str | None = None) -> None:
     """Send an Instagram message, prompting only when details are missing."""
     if name is None:
@@ -23,7 +30,7 @@ def send_message_instagram(name: str | None = None, mes: str | None = None) -> N
         print(f"Sending: {mes}")
         url = f"https://www.instagram.com/direct/t/{user[name]}"
         webbrowser.open(url)
-        time.sleep(6)  # Wait for the page to load
+        time.sleep(9)  # Wait for the page to load
         pyautogui.write(mes)
         pyautogui.press("enter")
         time.sleep(3)  # Wait for the message to be sent
