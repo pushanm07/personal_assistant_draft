@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from brain.composer import Composer
 from brain.interpreter import Interpreter
 
 
@@ -13,6 +14,7 @@ class Brain:
 
     def __init__(self) -> None:
         self.interpreter = Interpreter()
+        self.composer = Composer()
 
     def execute(
         self,
@@ -45,9 +47,16 @@ class Brain:
 
         if action == "send_message":
             recipient = decision.get("recipient")
-            message = decision.get("message")
+            intent = decision.get("intent")
             platform = decision.get("platform", "auto")
             if isinstance(recipient, str) and recipient.strip():
+                if not (isinstance(intent, str) and intent.strip()):
+                    intent = input(
+                        f"What should I tell {recipient}, Sir? "
+                    ).strip()
+                # ALANA writes the actual message from the intent; the user
+                # never has to hand it a finished line.
+                message = self.composer.compose(recipient, intent, platform)
                 send_message(recipient, message, platform)
                 return True
             print("Please tell me who to message, Sir.")
@@ -58,6 +67,17 @@ class Brain:
             if answer_handler:
                 answer_handler(prompt)
                 return True
+            
+        if action == "set_reminder":
+            set_reminder = actions.get("set_reminder")
+            if set_reminder:
+                # Pass the full reminder phrase so the parser can extract the
+                # reminder text, schedule, and repeat frequency without asking
+                # for a verbatim follow-up.
+                set_reminder(reminder_request=decision.get("text"))
+                return True
+            return False
+
 
         if action in actions:
             actions[action]()

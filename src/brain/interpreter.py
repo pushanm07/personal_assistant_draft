@@ -41,6 +41,7 @@ CONFIGURED_ACTIONS = {
     "send_message",
     "answer_question",
     "none",
+    "set_reminder"
 }
 
 
@@ -118,6 +119,8 @@ class Interpreter:
             "spotify for me pls": "spotify for me please",
             "pls": "please",
             "plz": "please",
+            "play some" : "play spotify",
+            "remindd me" : "set reminder"
         }
 
         for typo, fixed in replacements.items():
@@ -167,8 +170,9 @@ Return only valid JSON with exactly this structure:
   "song": "optional song title for play_song",
   "recipient": "optional recipient for send_message",
   "platform": "optional messaging platform: 'whatsapp', 'instagram', or 'auto' (default when unspecified)",
-  "message": "optional message for send_message",
+  "intent": "optional for send_message: a SHORT description of what the user wants to say. NOT a finished message. Do NOT write the message yourself; ALANA composes it separately.",
   "topic": "optional topic for answer_question",
+  "text": "optional reminder request",
   "confidence": 0.0
 }}
 
@@ -182,9 +186,13 @@ Examples:
 - "can you open spotfy for me pls" -> {{"action": "open_app", "target": "spotify", "confidence": 0.97}}
 - "play bad guy by billie eilish" -> {{"action": "play_song", "song": "Bad Guy by Billie Eilish", "confidence": 0.93}}
 - "send chinmay a quick message" -> {{"action": "send_message", "recipient": "chinmay", "platform": "auto", "confidence": 0.88}}
-- "whatsapp rohin that i'm running late" -> {{"action": "send_message", "recipient": "rohin", "platform": "whatsapp", "confidence": 0.9}}
+- "tell chinmay im gonna be late" -> {{"action": "send_message", "recipient": "chinmay", "platform": "auto", "intent": "i'm going to be late", "confidence": 0.92}}
+- "whatsapp rohin that i'm running late" -> {{"action": "send_message", "recipient": "rohin", "platform": "whatsapp", "intent": "i'm running late", "confidence": 0.9}}
+- "let sesha know i landed safe" -> {{"action": "send_message", "recipient": "sesha", "platform": "auto", "intent": "i landed safely", "confidence": 0.9}}
+- "shoot zaria a text that the plan is off tonight" -> {{"action": "send_message", "recipient": "zaria", "platform": "auto", "intent": "the plan is off tonight", "confidence": 0.9}}
 - "dm zaria on instagram" -> {{"action": "send_message", "recipient": "zaria", "platform": "instagram", "confidence": 0.9}}
 - "what is WPW syndrome" -> {{"action": "answer_question", "topic": "WPW syndrome", "confidence": 0.89}}
+- "remind me tomorrow to call mum" -> {"action":"set_reminder","text":"remind me tomorrow to call mum","confidence":0.95}
 
 Return only JSON and nothing else.
 """
@@ -213,10 +221,13 @@ Return only JSON and nothing else.
         if "platform" in decision and isinstance(decision.get("platform"), str):
             platform = decision["platform"].strip().lower()
             normalized["platform"] = platform if platform in {"whatsapp", "instagram", "auto"} else "auto"
-        if "message" in decision and isinstance(decision.get("message"), str):
-            normalized["message"] = decision["message"].strip()
+        raw_intent = decision.get("intent") or decision.get("message")
+        if isinstance(raw_intent, str) and raw_intent.strip():
+            normalized["intent"] = raw_intent.strip()
         if "topic" in decision and isinstance(decision.get("topic"), str):
             normalized["topic"] = decision["topic"].strip()
+        if "text" in decision and isinstance(decision.get("text"), str):
+            normalized["text"] = decision["text"].strip()
 
         if action in {"open_app", "play_song", "send_message", "answer_question"}:
             if action == "open_app" and not normalized.get("target"):
@@ -227,6 +238,9 @@ Return only JSON and nothing else.
                 return {"action": "none", "confidence": 0.0, "reason": "missing recipient"}
             if action == "answer_question" and not normalized.get("topic"):
                 return {"action": "none", "confidence": 0.0, "reason": "missing topic"}
+            if action == "set_reminder":
+                if not normalized.get("text"):
+                 return {"action": "none", "confidence": 0.0, "reason": "missing reminder text"}
 
         return normalized
 
@@ -272,20 +286,30 @@ Return only JSON and nothing else.
                     "song": song,
                     "confidence": 0.92,
                 }
-
+        if re.search(r"\b(remind|reminder)\b", command):
+            return {
+                "action": "set_reminder",
+                "text": prompt.strip(),
+                "confidence": 0.98,
+             }
         if re.search(
-            r"\b(message|msg|dm|text|whatsapp|whats\s?app|wa)\b",
+            r"\b(message|msg|dm|text|whatsapp|whats\s?app|wa|tell|ping|remind"
+            r"|shoot|hit\s+up|let)\b",
             prompt,
             flags=re.IGNORECASE,
         ):
             recipient = self._extract_recipient(prompt)
             if recipient:
-                return {
+                decision = {
                     "action": "send_message",
                     "recipient": recipient,
                     "platform": self._detect_platform(prompt),
                     "confidence": 0.9,
                 }
+                intent = self._extract_intent(prompt, recipient)
+                if intent:
+                    decision["intent"] = intent
+                return decision
 
         if self._looks_like_question(command):
             topic = self._extract_question_topic(prompt)
@@ -308,6 +332,13 @@ Return only JSON and nothing else.
     _NON_RECIPIENTS = {
         "to", "on", "a", "an", "the", "someone", "somebody", "him", "her",
         "them", "me", "message", "msg", "dm", "text", "whatsapp", "wa",
+        "know", "that", "and",
+    }
+
+    # Filler that sits between the recipient's name and the actual intent.
+    _INTENT_FILLER = {
+        "that", "to", "know", "saying", "say", "a", "an", "the", "and",
+        "message", "msg", "text", "note",
     }
 
     def _extract_recipient(self, prompt: str) -> str | None:
@@ -322,7 +353,9 @@ Return only JSON and nothing else.
             return known
 
         patterns = (
-            r"\b(?:message|msg|dm|text|whatsapp|whats\s?app|wa)\s+(?:to\s+)?([a-zA-Z]+)",
+            r"\b(?:message|msg|dm|text|whatsapp|whats\s?app|wa|tell|ping"
+            r"|remind|shoot|hit\s+up)\s+(?:to\s+)?([a-zA-Z]+)",
+            r"\blet\s+([a-zA-Z]+)\s+know\b",
             r"\bsend\s+([a-zA-Z]+)\b",
         )
         for pattern in patterns:
@@ -331,6 +364,45 @@ Return only JSON and nothing else.
                 candidate = match.group(1).lower().strip()
                 if candidate and candidate not in self._NON_RECIPIENTS:
                     return candidate
+        return None
+
+    def _extract_intent(self, prompt: str, recipient: str) -> str | None:
+        """Infer the gist the user wants conveyed — not a finished message.
+
+        The composer turns this gist into the actual message, so we only need a
+        faithful description of intent, stripped of the command framing.
+        """
+        quoted = re.search(r'["“](.+?)["”]', prompt)
+        if quoted:
+            return quoted.group(1).strip().rstrip("?.!") or None
+
+        # Everything after the recipient's name is usually the intent.
+        match = re.search(rf"\b{re.escape(recipient)}\b", prompt, flags=re.IGNORECASE)
+        if match:
+            tail = prompt[match.end():].strip().lstrip(",:- ")
+            # Drop a leading platform qualifier like "on instagram" so it does
+            # not leak into the message (but leave a real "on my way" alone).
+            tail = re.sub(
+                r"^on\s+(?:instagram|insta|ig|whatsapp|whats\s?app|wa)\b",
+                "",
+                tail,
+                flags=re.IGNORECASE,
+            ).strip()
+            words = tail.split()
+            while words and words[0].lower().strip(",:-") in self._INTENT_FILLER:
+                words.pop(0)
+            tail = " ".join(words).strip().rstrip("?.!")
+            if tail:
+                return tail
+
+        # Fall back to marker-based extraction for odd phrasings.
+        lower_prompt = prompt.lower()
+        for marker in (" that ", " saying ", " say ", " tell ", " to "):
+            if marker in lower_prompt:
+                body = prompt.split(marker, 1)[1].strip()
+                if body:
+                    return body.rstrip("?.!")
+
         return None
 
     @staticmethod

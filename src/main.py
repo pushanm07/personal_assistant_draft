@@ -13,6 +13,7 @@ from actions.spotify import (
 from actions.web import answer_question
 from brain.brain import Brain
 from actions.whatsapp import send_message_whatsapp
+from actions.reminder import set_reminder
 
 brain = Brain()
 
@@ -60,6 +61,7 @@ BRAIN_ACTIONS = {
     "answer_question": answer_question,
     "send_whatsapp_message": send_message_whatsapp,
     "send_instagram_message": send_message_instagram,
+    "set_reminder": set_reminder,
 }
 
 
