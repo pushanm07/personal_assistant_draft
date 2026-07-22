@@ -9,14 +9,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-try:
-    from ollama import chat as ollama_chat
-except ImportError:  # pragma: no cover - optional dependency
-    ollama_chat: Callable[..., Any] | None = None
+from brain import llm
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -88,7 +84,7 @@ class Interpreter:
         if local_decision is not None:
             return local_decision
 
-        if ollama_chat is not None:
+        if llm.available:
             llm_decision = self._llm_interpret(cleaned_text)
             if llm_decision is not None:
                 return llm_decision
@@ -131,18 +127,24 @@ class Interpreter:
     def _llm_interpret(self, prompt: str) -> dict[str, Any] | None:
         """Ask Ollama for a structured interpretation when available."""
         system_prompt = self._build_system_prompt()
+        # temperature=0 keeps intent classification deterministic; a small
+        # num_predict is plenty for the compact JSON we ask for and keeps the
+        # call snappy.
+        content = llm.chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            model=self.model,
+            fmt="json",
+            temperature=0.0,
+            num_predict=200,
+        )
+        if not content:
+            return None
         try:
-            response = ollama_chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                format="json",
-            )
-            content = response["message"]["content"]
             decision = json.loads(content)
-        except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
+        except (json.JSONDecodeError, TypeError) as error:
             return {
                 "action": "none",
                 "confidence": 0.0,

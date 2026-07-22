@@ -6,10 +6,7 @@ from urllib.parse import urlparse
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PERSONALITY_FILE = PROJECT_ROOT / "config" / "personality.json"
 
-try:
-    from ollama import chat as ollama_chat
-except ImportError:  # pragma: no cover - optional dependency
-    ollama_chat = None
+from brain import llm
 
 from internet.search import search
 from internet.fetch import download
@@ -109,23 +106,21 @@ def _build_answer_system_prompt() -> str:
 
 def _best_answer(question: str, context: str) -> str:
     """Answer the question from web context in ALANA's voice, falling back if the model is unavailable."""
-    if ollama_chat is None:
+    if not llm.available:
         return _fallback_answer(question, context)
 
-    try:
-        response = ollama_chat(
-            model="llama3.2:latest",
-            messages=[
-                {"role": "system", "content": _build_answer_system_prompt()},
-                {"role": "user", "content": f"Question: {question}\n\nContext:\n{context[:12000]}"},
-            ],
-        )
-        content = (response["message"]["content"] or "").strip()
+    content = llm.chat(
+        [
+            {"role": "system", "content": _build_answer_system_prompt()},
+            {"role": "user", "content": f"Question: {question}\n\nContext:\n{context[:12000]}"},
+        ],
+        temperature=0.2,
+        num_predict=256,
+    )
+    if content:
         content = re.sub(r"\s+", " ", content).strip().strip('"').strip()
         if content:
             return content
-    except Exception:
-        pass
 
     return _fallback_answer(question, context)
 

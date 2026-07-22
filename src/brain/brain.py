@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from brain import llm
 from brain.composer import Composer
 from brain.interpreter import Interpreter
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PERSONALITY_FILE = PROJECT_ROOT / "config" / "personality.json"
 
 
 class Brain:
@@ -15,6 +21,19 @@ class Brain:
     def __init__(self) -> None:
         self.interpreter = Interpreter()
         self.composer = Composer()
+        self.personality = self._load_personality()
+
+    @staticmethod
+    def _load_personality() -> dict[str, Any]:
+        """Load ALANA's personality so conversational replies stay in voice."""
+        try:
+            with PERSONALITY_FILE.open(encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {}
 
     def execute(
         self,
@@ -88,4 +107,49 @@ class Brain:
     def think(self, prompt: str) -> dict[str, Any]:
         """Return the interpreter's current best interpretation of the prompt."""
         return self.interpreter.interpret(prompt)
+
+    def _chat_system_prompt(self) -> str:
+        """Describe how ALANA should sound when just talking to the user."""
+        name = self.personality.get("name", "ALANA")
+        tone = self.personality.get(
+            "tone", "polished, concise, discreet, lightly witty"
+        )
+        address = self.personality.get("user_address", ["Sir"])
+        address_hint = address[0] if isinstance(address, list) and address else "Sir"
+        rules = self.personality.get("rules", [])
+        rules_block = "\n".join(f"- {rule}" for rule in rules if isinstance(rule, str))
+
+        return (
+            f"You are {name}, {address_hint}'s personal AI assistant — think "
+            f"J.A.R.V.I.S. Your tone is {tone}. You may address the user as "
+            f"{address_hint}.\n\n"
+            "You are talking directly to your user, not executing a command. "
+            "Reply conversationally and helpfully in your own voice.\n\n"
+            "Style rules:\n"
+            "- Be genuinely helpful and answer directly from your own knowledge.\n"
+            "- Keep it short and natural — usually one to three sentences.\n"
+            "- No filler openers, no lists unless truly needed, no emojis.\n"
+            f"{rules_block}"
+        )
+
+    def chat(self, prompt: str) -> str:
+        """Answer the user conversationally when no concrete action fits.
+
+        This is the graceful fallback for anything the command router does not
+        recognise, and the path for plain questions the user asks ALANA itself.
+        """
+        reply = llm.chat(
+            [
+                {"role": "system", "content": self._chat_system_prompt()},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.6,
+            num_predict=220,
+        )
+        if reply and reply.strip():
+            return reply.strip()
+
+        address = self.personality.get("user_address", ["Sir"])
+        address_hint = address[0] if isinstance(address, list) and address else "Sir"
+        return f"I'm not sure how to help with that yet, {address_hint}."
 

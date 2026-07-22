@@ -1,0 +1,10 @@
+{
+  "stt": {
+    "model": "small",
+    "record_duration": 15,
+    "sample_rate": 16000,
+    "language": "en",
+    "output_path": "voice.wav",
+    "device": null
+  }
+}

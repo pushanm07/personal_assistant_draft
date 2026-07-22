@@ -12,14 +12,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-try:
-    from ollama import chat as ollama_chat
-except ImportError:  # pragma: no cover - optional dependency
-    ollama_chat: Callable[..., Any] | None = None
+from brain import llm
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -73,26 +69,25 @@ class Composer:
 
         profile = self.contacts.get((recipient or "").lower().strip())
 
-        if ollama_chat is None:
+        if not llm.available:
             return self._fallback(intent)
 
-        try:
-            response = ollama_chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": self._system_prompt(recipient, platform, profile),
-                    },
-                    {"role": "user", "content": self._user_prompt(recipient, intent)},
-                ],
-            )
-            content = (response["message"]["content"] or "").strip()
-            content = self._clean(content)
+        content = llm.chat(
+            [
+                {
+                    "role": "system",
+                    "content": self._system_prompt(recipient, platform, profile),
+                },
+                {"role": "user", "content": self._user_prompt(recipient, intent)},
+            ],
+            model=self.model,
+            temperature=0.7,
+            num_predict=120,
+        )
+        if content:
+            content = self._clean(content.strip())
             if content:
                 return content
-        except Exception:  # pragma: no cover - model/runtime failures
-            pass
 
         return self._fallback(intent)
 
