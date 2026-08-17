@@ -91,7 +91,7 @@ class AppController(QObject):
 
         # Lightweight energy driver: only active while speaking/listening.
         self._energy_timer = QTimer(self)
-        self._energy_timer.setInterval(40)  # ~25 Hz, tiny cost
+        self._energy_timer.setInterval(66)  # ~15 Hz, tiny cost
         self._energy_timer.timeout.connect(self._pump_energy)
         self._energy_phase = 0.0
 

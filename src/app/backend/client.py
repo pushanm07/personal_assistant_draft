@@ -13,6 +13,7 @@ Both implement the same small contract, so swapping is a config change.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Protocol
 
 import requests
@@ -85,9 +86,13 @@ class InProcessClient:
     def _ensure_brain(self) -> Any:
         if self._brain is None:
             from brain.brain import Brain
-            from actions import instagram, whatsapp
+            self._brain = Brain()
+        return self._brain
 
-            brain = Brain()
+    def _ensure_actions(self) -> dict[str, Any]:
+        """Load optional desktop integrations only for an actual command."""
+        if self.actions is None:
+            from actions import instagram, whatsapp
             self.actions = _brain_actions()
 
             def _send_message(recipient, message, platform="auto"):
@@ -102,9 +107,18 @@ class InProcessClient:
                 else:
                     print(f"No contact named {recipient} on IG or WhatsApp.")
 
-            brain._send_message = _send_message  # type: ignore[attr-defined]
-            self._brain = brain
-        return self._brain
+            self._ensure_brain()._send_message = _send_message  # type: ignore[attr-defined]
+        return self.actions
+
+    @staticmethod
+    def _looks_like_command(text: str) -> bool:
+        """Avoid an expensive action-classification pass for normal conversation."""
+        return bool(re.search(
+            r"\b(open|launch|start|run|play|pause|resume|continue|skip|next|previous|"
+            r"message|text|dm|whatsapp|remind|set reminder|send)\b",
+            text,
+            flags=re.IGNORECASE,
+        ))
 
     def roundtrip(self, user_text: str) -> dict[str, Any]:
         try:
@@ -113,9 +127,15 @@ class InProcessClient:
             return {"kind": "error", "text": str(exc)}
 
         try:
+            # Chat/question turns get one concise local-model call rather than
+            # an intent model call followed by a web action or second chat call.
+            if not self._looks_like_command(user_text):
+                return {"kind": "chat", "text": brain.chat(user_text)}
+
+            actions = self._ensure_actions()
             executed = brain.execute(
                 user_text,
-                self.actions,
+                actions,
                 brain._send_message,  # type: ignore[attr-defined]
             )
             if executed:

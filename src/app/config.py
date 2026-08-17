@@ -18,18 +18,18 @@ DESKTOP_CONFIG_FILE = PROJECT_ROOT / "config" / "desktop.json"
 # --------------------------------------------------------------------------- #
 # Crimson palette (avoids gold/orange entirely).
 # --------------------------------------------------------------------------- #
-PALETTE = {
-    "background": "#040405",       # almost pure black
-    "backgroundAlt": "#0a0708",    # near-black red tint
-    "hudLine": "#331014",          # faint structural red
-    "hudText": "#5c1219",          # minimal data markings
-    "accent": "#c8102e",           # primary crimson glow
-    "accentHot": "#e02a3c",        # brighter scarlet
-    "core": "#ff4652",             # hottest white-red core
-    "wine": "#3a070d",             # dark wine
-    "page": "#160407",             # page darkened red
-    "textPrimary": "#e8c9cc",      # warm off-white
-    "textDim": "#8a8283",          # secondary text
+PALETTE = { # A nice, beautiful purple/violet
+    "background": "#0A0114",       # Deep, dark purple, almost black
+    "backgroundAlt": "#140226",    # Slightly lighter dark purple
+    "hudLine": "#3C1A5B",          # Muted violet for structural lines
+    "hudText": "#6A4C9C",          # Soft purple for secondary text
+    "accent": "#8A2BE2",           # Vibrant blue-violet for primary focus
+    "accentHot": "#A45EFF",        # A brighter, more electric purple for highlights
+    "core": "#D0A0FF",             # Light lavender for the hottest core elements
+    "wine": "#2C0059",             # A deep, rich wine purple for contrast
+    "page": "#1F0F33",             # Dark purple for page backgrounds
+    "textPrimary": "#F2E6FF",      # Very light lavender, almost white, for main text
+    "textDim": "#9E8AAE",          # Greyish-purple for less important text
 }
 
 
@@ -50,10 +50,10 @@ class OrbConfig:
     slowly when nothing is happening and speeds up only while listening,
     thinking or speaking. ``particle_count`` is the visible drifting elements.
     """
-
-    fps_idle: int = 24
-    fps_active: int = 36
-    particle_count: int = 64
+ 
+    fps_idle: int = 6
+    fps_active: int = 12
+    particle_count: int = 12
     low_power: bool = True  # idle slows to ~10fps when the window is unfocused
     active_fraction: float = 0.6  # orb occupies ~60% of the main screen
 

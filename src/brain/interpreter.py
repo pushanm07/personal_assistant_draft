@@ -266,7 +266,7 @@ Return only JSON and nothing else.
         if "text" in decision and isinstance(decision.get("text"), str):
             normalized["text"] = decision["text"].strip()
 
-        if action in {"open_app", "play_song", "send_message", "answer_question"}:
+        if action in {"open_app", "play_song", "send_message", "answer_question", "set_reminder"}:
             if action == "open_app" and not normalized.get("target"):
                 return {"action": "none", "confidence": 0.0, "reason": "missing target"}
             if action == "play_song" and not normalized.get("song"):

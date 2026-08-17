@@ -144,7 +144,7 @@ class Brain:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.6,
-            num_predict=220,
+            num_predict=100,
         )
         if reply and reply.strip():
             return reply.strip()

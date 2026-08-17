@@ -204,7 +204,7 @@ Window {
         Connections {
             target: alana
             function onConversationAppended(msg) {
-                convModel.append({"role": msg.role, "text": msg.text})
+                convModel.append({"sender": msg.role || "alana", "body": msg.text || ""})
                 listView.contentY = listView.contentHeight - listView.height
             }
         }
@@ -239,9 +239,9 @@ Window {
                 Repeater {
                     model: convModel
                     delegate: Item {
-                        width: ListView.view ? ListView.view.width : convRoot.width
+                        width: convRoot.width
                         height: Math.min(520, bubble.implicitHeight + 48)
-                        property bool isAlana: role === "alana"
+                        property bool isAlana: model.sender === "alana"
                         Rectangle {
                             id: bubble
                             width: Math.min(parent.width * 0.88, 460)
@@ -256,7 +256,7 @@ Window {
                             Text {
                                 id: txt
                                 anchors { fill: parent; leftMargin: 16; rightMargin: 16; topMargin: 14; bottomMargin: 12 }
-                                text: model.text
+                                text: model.body
                                 color: isAlana ? palette.textPrimary : "#f2d7da"
                                 font { family: "Segoe UI"; pixelSize: 14; letterSpacing: 0.2 }
                                 wrapMode: Text.Wrap

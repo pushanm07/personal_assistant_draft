@@ -222,6 +222,7 @@ def route(payload: TextRequest) -> dict[str, Any]:
     return {
         "decision": decision,
         "execution": "chat",
+        "role": "assistant",
         "reply": BRAIN.chat(payload.text),
     }
 
