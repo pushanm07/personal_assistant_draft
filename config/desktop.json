@@ -1,0 +1,46 @@
+{
+  "window": {
+    "width": 980,
+    "height": 760,
+    "minWidth": 760,
+    "minHeight": 560,
+    "title": "ALANA"
+  },
+  "orb": {
+    "fpsIdle": 24,
+    "fpsActive": 36,
+    "particleCount": 64,
+    "lowPower": true,
+    "activeFraction": 0.6
+  },
+  "tts": {
+    "provider": "edge-tts",
+    "voice": "en-US-JennyNeural",
+    "rate": "+12%",
+    "pitch": "+0Hz",
+    "enabled": true
+  },
+  "stt": {
+    "engine": "whisper",
+    "model": "tiny",
+    "language": "en",
+    "sampleRate": 16000,
+    "recordDuration": 12.0,
+    "device": null
+  },
+  "wake": {
+    "engine": "energy",
+    "threshold": 0.045,
+    "minActiveBlocks": 2,
+    "blockMs": 40,
+    "keywords": ["alana"],
+    "accessKey": "",
+    "modelPath": ""
+  },
+  "backend": {
+    "mode": "inprocess",
+    "host": "127.0.0.1",
+    "port": 8000,
+    "timeout": 90.0
+  }
+}

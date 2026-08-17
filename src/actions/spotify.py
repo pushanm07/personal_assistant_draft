@@ -2,9 +2,11 @@
 
 import json
 import subprocess
+import threading
 import time
 import re
 import spotipy
+from functools import lru_cache
 from pathlib import Path
 from spotipy.oauth2 import SpotifyOAuth
 
@@ -17,9 +19,17 @@ TOKEN_CACHE = PROJECT_ROOT / ".spotify_token_cache"
 SPOTIFY_SCOPES = "user-read-private user-library-read user-read-playback-state user-modify-playback-state"
 NON_ORIGINAL_MARKERS = ("cover", "tribute", "karaoke", "instrumental")
 
+# A single authenticated client is reused for every command. Building a fresh
+# SpotifyOAuth + spotipy client per action meant re-reading config/spotify.json
+# and re-running the OAuth token refresh handshake each time, which was the
+# dominant cost for pause/play/skip actions.
+_spotify_client: "spotipy.Spotify | None" = None
+_client_lock = threading.Lock()
 
+
+@lru_cache(maxsize=None)
 def get_app_path(app_name: str) -> Path:
-    """Return an application's configured executable path."""
+    """Return an application's configured executable path (cached per process)."""
     with APPS_CONFIG.open(encoding="utf-8") as config_file:
         apps = json.load(config_file)
 
@@ -27,6 +37,36 @@ def get_app_path(app_name: str) -> Path:
         return Path(apps[app_name])
     except KeyError as error:
         raise ValueError(f"No path configured for '{app_name}'.") from error
+
+
+def get_spotify_client() -> "spotipy.Spotify | None":
+    """Return the process-wide authenticated Spotify client, building it once.
+
+    Returns ``None`` (and prints a hint) when ALANA is not yet authenticated.
+    """
+    global _spotify_client
+    if _spotify_client is not None:
+        return _spotify_client
+
+    if not TOKEN_CACHE.is_file():
+        print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
+        return None
+
+    with _client_lock:
+        if _spotify_client is not None:
+            return _spotify_client
+        with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
+            spotify_config = json.load(config_file)
+        auth_manager = SpotifyOAuth(
+            client_id=spotify_config["client id"],
+            client_secret=spotify_config["client secret"],
+            redirect_uri=spotify_config["redirect uri"],
+            scope=SPOTIFY_SCOPES,
+            cache_path=str(TOKEN_CACHE),
+            open_browser=False,
+        )
+        _spotify_client = spotipy.Spotify(auth_manager=auth_manager)
+        return _spotify_client
 
 
 def open_spotify() -> None:
@@ -124,22 +164,9 @@ def choose_track(tracks: list[dict], title: str, artist: str | None) -> dict:
 
 def play_song(song_name: str) -> None:
     """Search for a song on Spotify and play it."""
-    if not TOKEN_CACHE.is_file():
-        print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
+    spotify = get_spotify_client()
+    if spotify is None:
         return
-
-    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-        spotify_config = json.load(config_file)
-
-    auth_manager = SpotifyOAuth(
-        client_id=spotify_config["client id"],
-        client_secret=spotify_config["client secret"],
-        redirect_uri=spotify_config["redirect uri"],
-        scope=SPOTIFY_SCOPES,
-        cache_path=str(TOKEN_CACHE),
-        open_browser=False,
-    )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
 
     try:
         title, artist = split_song_and_artist(song_name)
@@ -196,22 +223,9 @@ def play_song(song_name: str) -> None:
 
 def pause_song() -> None:
     """Pause the currently playing song on Spotify."""
-    if not TOKEN_CACHE.is_file():
-        print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
+    spotify = get_spotify_client()
+    if spotify is None:
         return
-
-    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-        spotify_config = json.load(config_file)
-
-    auth_manager = SpotifyOAuth(
-        client_id=spotify_config["client id"],
-        client_secret=spotify_config["client secret"],
-        redirect_uri=spotify_config["redirect uri"],
-        scope=SPOTIFY_SCOPES,
-        cache_path=str(TOKEN_CACHE),
-        open_browser=False,
-    )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
 
     device_id = get_active_device_id(spotify)
     if not device_id:
@@ -227,22 +241,9 @@ def pause_song() -> None:
 
 def resume_song() -> None:
     """Resume the currently paused song on Spotify."""
-    if not TOKEN_CACHE.is_file():
-        print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
+    spotify = get_spotify_client()
+    if spotify is None:
         return
-
-    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-        spotify_config = json.load(config_file)
-
-    auth_manager = SpotifyOAuth(
-        client_id=spotify_config["client id"],
-        client_secret=spotify_config["client secret"],
-        redirect_uri=spotify_config["redirect uri"],
-        scope=SPOTIFY_SCOPES,
-        cache_path=str(TOKEN_CACHE),
-        open_browser=False,
-    )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
 
     device_id = get_active_device_id(spotify)
     if not device_id:
@@ -258,22 +259,9 @@ def resume_song() -> None:
 
 def next_song() -> None:
     """Skip to the next song on Spotify."""
-    if not TOKEN_CACHE.is_file():
-        print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
+    spotify = get_spotify_client()
+    if spotify is None:
         return
-
-    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-        spotify_config = json.load(config_file)
-
-    auth_manager = SpotifyOAuth(
-        client_id=spotify_config["client id"],
-        client_secret=spotify_config["client secret"],
-        redirect_uri=spotify_config["redirect uri"],
-        scope=SPOTIFY_SCOPES,
-        cache_path=str(TOKEN_CACHE),
-        open_browser=False,
-    )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
 
     device_id = get_active_device_id(spotify)
     if not device_id:
@@ -289,22 +277,9 @@ def next_song() -> None:
 
 def previous_song() -> None:
     """Go back to the previous song on Spotify."""
-    if not TOKEN_CACHE.is_file():
-        print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
+    spotify = get_spotify_client()
+    if spotify is None:
         return
-
-    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-        spotify_config = json.load(config_file)
-
-    auth_manager = SpotifyOAuth(
-        client_id=spotify_config["client id"],
-        client_secret=spotify_config["client secret"],
-        redirect_uri=spotify_config["redirect uri"],
-        scope=SPOTIFY_SCOPES,
-        cache_path=str(TOKEN_CACHE),
-        open_browser=False,
-    )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
 
     device_id = get_active_device_id(spotify)
     if not device_id:

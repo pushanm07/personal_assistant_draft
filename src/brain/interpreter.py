@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,9 @@ CONFIGURED_ACTIONS = {
     "none",
     "set_reminder"
 }
+
+# How long (seconds) a memoised interpretation stays valid before recomputing.
+DECISION_CACHE_TTL = 60.0
 
 
 def load_personality() -> dict[str, Any]:
@@ -76,31 +80,53 @@ class Interpreter:
         self.model = model
         self.personality = load_personality()
         self.contacts = load_contacts()
+        # Reused across LLM calls so we never re-serialise the personality and
+        # contacts into a system prompt for every interpret().
+        self._cached_system_prompt: str | None = None
+        # Short-TTL memo of interpretations so repeating the same command does
+        # not re-run the (comparatively expensive) local/LLM pipeline.
+        self._decision_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     def interpret(self, raw_input: str) -> dict[str, Any]:
         """Return a structured interpretation for the user's request."""
         cleaned_text = self._clean_message(raw_input)
+
+        cached = self._decision_cache.get(cleaned_text)
+        if cached is not None and time.monotonic() - cached[0] < DECISION_CACHE_TTL:
+            return cached[1]
+
         local_decision = self._local_interpret(cleaned_text)
         if local_decision is not None:
-            return local_decision
+            return self._remember(cleaned_text, local_decision)
 
         if llm.available:
             llm_decision = self._llm_interpret(cleaned_text)
             if llm_decision is not None:
-                return llm_decision
+                return self._remember(cleaned_text, llm_decision)
 
         if self._looks_like_question(cleaned_text):
-            return {
-                "action": "answer_question",
-                "topic": cleaned_text.strip(),
-                "confidence": 0.35,
-            }
+            return self._remember(
+                cleaned_text,
+                {
+                    "action": "answer_question",
+                    "topic": cleaned_text.strip(),
+                    "confidence": 0.35,
+                },
+            )
 
-        return {
-            "action": "none",
-            "confidence": 0.0,
-            "reason": "no supported action detected",
-        }
+        return self._remember(
+            cleaned_text,
+            {
+                "action": "none",
+                "confidence": 0.0,
+                "reason": "no supported action detected",
+            },
+        )
+
+    def _remember(self, key: str, decision: dict[str, Any]) -> dict[str, Any]:
+        """Memoise an interpretation with a timestamp for the short TTL cache."""
+        self._decision_cache[key] = (time.monotonic(), dict(decision))
+        return decision
 
     def _clean_message(self, raw_input: str) -> str:
         """Normalize obvious typing and phrasing issues in the user's text."""
@@ -158,10 +184,17 @@ class Interpreter:
         return candidate
 
     def _build_system_prompt(self) -> str:
-        """Describe the interpreter contract to the model."""
+        """Describe the interpreter contract to the model.
+
+        The prompt is built once and reused (personality/contacts do not change
+        at runtime), which removes a large per-call string build.
+        """
+        if self._cached_system_prompt is not None:
+            return self._cached_system_prompt
+
         personality_json = json.dumps(self.personality, indent=2)
         contacts_json = json.dumps(self.contacts, indent=2)
-        return f"""
+        prompt = f"""
 You are ALANA's language understanding component.
 Your only job is to decide what the user means.
 Do not open apps, send messages, play music, or use the computer.
@@ -198,6 +231,8 @@ Examples:
 
 Return only JSON and nothing else.
 """
+        self._cached_system_prompt = prompt
+        return prompt
 
     def _validate_decision(self, decision: dict[str, Any]) -> dict[str, Any]:
         """Ensure the model output is a safe, structured interpretation."""

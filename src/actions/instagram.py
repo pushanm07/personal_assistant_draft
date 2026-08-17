@@ -11,6 +11,12 @@ user = {
 
 }
 
+# Browser automation wait tuning. The page-load wait dominates the latency of
+# a send; if your connection is fast you can lower it here without touching
+# code. The trailing wait is already trimmed to confirm the send, not linger.
+PAGE_LOAD_SECONDS = 9.0  # let the dm thread render
+SEND_CONFIRM_SECONDS = 1.5  # let the message post before closing the tab
+
 def has_contact(name: str | None) -> bool:
     """Return True when *name* is a known Instagram contact."""
     if not name:
@@ -30,10 +36,10 @@ def send_message_instagram(name: str | None = None, mes: str | None = None) -> N
         print(f"Sending: {mes}")
         url = f"https://www.instagram.com/direct/t/{user[name]}"
         webbrowser.open(url)
-        time.sleep(9)  # Wait for the page to load
+        time.sleep(PAGE_LOAD_SECONDS)  # Wait for the page to load
         pyautogui.write(mes)
         pyautogui.press("enter")
-        time.sleep(3)  # Wait for the message to be sent
+        time.sleep(SEND_CONFIRM_SECONDS)  # Wait for the message to be sent
         pyautogui.hotkey("ctrl", "w")  # Close the tab
     else:
         print(f"I don't have an Instagram contact named {name}, Sir.")

@@ -37,8 +37,11 @@ def _has_explicit_time(text: str | None) -> bool:
 
 
 def _strip_reminder_command(text: str) -> str:
+    # ``\\b`` after the optional (to|for|about) ensures we only strip a whole
+    # word -- without it, "Remind me tomorrow" matched " to" and ate the "to"
+    # prefix of "tomorrow", leaving "morrow".
     stripped = re.sub(
-        r"^\s*(?:remind\s+me|remind|set\s+(?:a\s+)?reminder|reminder)\b(?:\s+(?:to|for|about))?\s*",
+        r"^\s*(?:remind\s+me|remind|set\s+(?:a\s+)?reminder|reminder)\b(?:\s+(?:to|for|about)\b)?\s*",
         "",
         text,
         flags=re.IGNORECASE,
@@ -46,20 +49,27 @@ def _strip_reminder_command(text: str) -> str:
     return stripped.strip()
 
 
+# Words that belong to the schedule region (days, times, their prepositions and
+# trailing fillers). Only stripped from the FRONT of the text so reminder
+# content elsewhere is never touched.
+_SCHEDULE_FRONT = re.compile(
+    r"^(?:\s*(?:every\s+)?(?:day|week|month|year|monday|tuesday|wednesday|"
+    r"thursday|friday|saturday|sunday|today|tomorrow|tonight|morning|afternoon|"
+    r"evening|night|noon|midnight|daily|weekly|monthly|yearly|annually|"
+    r"fortnight|biweekly|at|on|in|by|to|that|for|about|and|the|a|an|before|"
+    r"after|until|till|then|\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.|p\.m\.))?))+",
+    re.IGNORECASE,
+)
+
+
 def _strip_schedule_terms(text: str) -> str:
-    cleaned = re.sub(
-        r"\b(?:every\s+(?:day|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|daily|weekly|monthly|yearly|annually|fortnight|biweekly|today|tomorrow|tonight|morning|afternoon|evening|night|noon|midnight)\b",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        r"\b(?:at|on|in|by)\b\s*(?:\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|today|tomorrow|tonight|morning|afternoon|evening|night|noon|midnight|[A-Za-z0-9/\-]+)",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    return cleaned.strip()
+    """Strip the leading schedule region (dates/times/prepositions/fillers)."""
+    previous = None
+    while previous != text:
+        previous = text
+        text = _SCHEDULE_FRONT.sub("", text, count=1).lstrip()
+    return text
+
 
 
 def parse_reminder_request(
@@ -78,7 +88,6 @@ def parse_reminder_request(
 
     frequency = extract_reminder_frequency(raw_text)
     parsed_dt = None
-    schedule_phrases: list[str] = []
 
     try:
         matches = search_dates(
@@ -92,7 +101,6 @@ def parse_reminder_request(
         matches = []
 
     if matches:
-        schedule_phrases = [phrase for phrase, _ in matches if isinstance(phrase, str)]
         parsed_dt = matches[0][1]
 
     if parsed_dt is None:
@@ -129,11 +137,17 @@ def parse_reminder_request(
         if parsed_dt <= now:
             parsed_dt += timedelta(days=1)
 
-    reminder_text = raw_text
-    for phrase in schedule_phrases:
-        reminder_text = re.sub(re.escape(phrase), "", reminder_text, flags=re.IGNORECASE)
+    # An explicit "tomorrow" overrides a search that resolved only the time to
+    # today (e.g. "tomorrow at 6pm" -> search_dates may return today 18:00).
+    if (
+        re.search(r"\btomorrow\b", raw_text, flags=re.IGNORECASE)
+        and parsed_dt.date() == now.date()
+    ):
+        parsed_dt += timedelta(days=1)
 
-    reminder_text = _strip_reminder_command(reminder_text)
+    # Strip the command prefix, then the leading schedule region (whole-word /
+    # front-anchored so reminder content like "tomorrow" in the middle is safe).
+    reminder_text = _strip_reminder_command(raw_text)
     reminder_text = _strip_schedule_terms(reminder_text)
     reminder_text = re.sub(r"\s+", " ", reminder_text).strip(" .,:;-")
 

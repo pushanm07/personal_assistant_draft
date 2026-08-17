@@ -75,7 +75,10 @@ def transcribe_audio(
     segments, _ = model.transcribe(
         audio_path,
         language=language,
-        vad_filter=False,
+        # VAD skips long stretches of silence up front, so Whisper only decodes
+        # the actual speech — a steady speed win on most real recordings.
+        vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500},
         condition_on_previous_text=False,
         beam_size=1,
     )

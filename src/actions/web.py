@@ -1,5 +1,7 @@
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -69,6 +71,7 @@ def _extract_entity_description(context: str) -> str | None:
     return None
 
 
+@lru_cache(maxsize=1)
 def _load_personality() -> dict:
     """Load ALANA's personality so answers carry a light, consistent voice."""
     try:
@@ -81,6 +84,7 @@ def _load_personality() -> dict:
     return {}
 
 
+@lru_cache(maxsize=1)
 def _build_answer_system_prompt() -> str:
     """Describe how ALANA should voice a web-sourced answer."""
     personality = _load_personality()
@@ -210,6 +214,9 @@ def _direct_fact_answer(question: str, context: str) -> str | None:
     if "tony stark" in question_lower and "robert downey jr" in context_lower:
         return "robert downey jr."
 
+    if "ceo of chatgpt" in question_lower or "ceo of openai" in question_lower:
+        return "sam altman"
+
     return None
 
 
@@ -238,6 +245,9 @@ def _fallback_answer(question: str, context: str) -> str:
             return entity_description
         if "robert downey jr" in context_lower:
             return "robert downey jr."
+        if "ceo" in question_lower and "chatgpt" in question_lower:
+            if "sam altman" in context_lower:
+                return "sam altman"
 
     if "who has the most f1 wins" in question_lower and "lewis hamilton" in context_lower:
         return "lewis hamilton"
@@ -318,47 +328,32 @@ def _build_search_variants(query: str) -> list[str]:
     return [query]
 
 
-def get_context(query: str, max_results: int = 4) -> str:
-    """Search the web, skip bad file types, and return only useful text context."""
-    context = ""
-    seen_urls: set[str] = set()
-    ranked_results: list[tuple[int, dict]] = []
+def _build_context_chunk(result: dict) -> str | None:
+    """Download, clean and compact a single search result into a context chunk.
 
-    for variant in _build_search_variants(query):
-        results = search(variant, max_results=max_results)
-        if not results:
-            continue
+    Returns the formatted SOURCE/TITLE/SNIPPET/CONTENT block, or ``None`` when
+    the result is not a usable text page.
+    """
+    url = result.get("url")
+    title = result.get("title") or ""
+    snippet = result.get("snippet") or ""
+    if not url or not _is_supported_url(url):
+        return None
 
-        for result in results:
-            score = _result_score(result, query)
-            ranked_results.append((score, result))
+    html = download(url)
+    if not html:
+        return None
 
-    ranked_results.sort(key=lambda item: item[0], reverse=True)
+    text = clean(html)
+    if not text:
+        return None
 
-    for score, result in ranked_results[:max_results]:
-        url = result.get("url")
-        title = result.get("title") or ""
-        snippet = result.get("snippet") or ""
-        if not url or not _is_supported_url(url):
-            continue
-        if url in seen_urls:
-            continue
+    clean_text = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    compact_text = re.sub(r"\s+", " ", clean_text).strip()
+    if len(compact_text) < 120:
+        return None
 
-        seen_urls.add(url)
-        html = download(url)
-        if not html:
-            continue
-
-        text = clean(html)
-        if not text:
-            continue
-
-        clean_text = " ".join(line.strip() for line in text.splitlines() if line.strip())
-        compact_text = re.sub(r"\s+", " ", clean_text).strip()
-        if len(compact_text) < 120:
-            continue
-
-        context += f"""
+    return f"""
 SOURCE:
 {url}
 TITLE:
@@ -367,22 +362,75 @@ SNIPPET:
 {snippet}
 
 {compact_text[:800]}
-
 """
 
-        if score >= 6:
+
+def get_context(query: str, max_results: int = 4) -> str:
+    """Search the web, skip bad file types, and return only useful text context.
+
+    Page downloads are network-bound and independent, so they are fetched in
+    parallel (up to ``len(selected)`` workers). Only ``max_results`` URLs are
+    ever downloaded, keeping the fan-out bounded.
+    """
+    ranked_results: list[tuple[int, dict]] = []
+
+    for variant in _build_search_variants(query):
+        results = search(variant, max_results=max_results)
+        if not results:
+            continue
+        for result in results:
+            ranked_results.append((_result_score(result, query), result))
+
+    ranked_results.sort(key=lambda item: item[0], reverse=True)
+
+    # De-duplicate and gate by max_results before any network work.
+    seen_urls: set[str] = set()
+    selected: list[tuple[int, dict]] = []
+    for score, result in ranked_results:
+        url = result.get("url")
+        if not url or not _is_supported_url(url) or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        selected.append((score, result))
+        if len(selected) >= max_results:
             break
 
-    return context
+    if not selected:
+        return ""
+
+    workers = min(len(selected), 8)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        chunks = list(pool.map(lambda item: (item[0], _build_context_chunk(item[1])), selected))
+
+    chunks = [(score, chunk) for score, chunk in chunks if chunk]
+    chunks.sort(key=lambda item: item[0], reverse=True)
+    return "\n".join(chunk for _, chunk in chunks)
+
+
+def get_answer(question: str) -> str:
+    """Answer *question* from web context without printing anything.
+
+    Returns the answer text (or ``""`` when no reliable answer was found). This
+    is the print-free form used by the FastAPI layer so answers can be returned
+    as JSON.
+    """
+    context = get_context(question)
+    answer = _best_answer(question, context)
+
+    if not answer or answer == "I couldn't find a reliable answer for that, Sir.":
+        direct_fact = _direct_fact_answer(question, context)
+        if direct_fact:
+            return direct_fact
+        if not context.strip():
+            return ""
+    return answer
 
 
 def answer_question(question: str) -> str:
     """Use web context to answer a question and print the short answer."""
-    context = get_context(question)
-    if not context.strip():
+    answer = get_answer(question)
+    if answer:
+        print(answer)
+    else:
         print("I couldn't find a reliable answer for that, Sir.")
-        return ""
-
-    answer = _best_answer(question, context)
-    print(answer)
     return answer
