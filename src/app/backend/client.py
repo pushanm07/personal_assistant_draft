@@ -39,41 +39,55 @@ class BackendClient(Protocol):
 _BRAIN_ACTIONS: dict[str, Any] | None = None
 
 
+def _lazy(target: str):
+    """Return a callable that imports ``module.function`` on first use.
+
+    Every action in the registry is wrapped this way, so the heavy optional
+    dependencies (spotipy, pyautogui, the instagram/whatsapp automation
+    modules, ...) are only ever imported when that specific action actually
+    runs. A one-song command never pays for the whatsapp stack, and vice
+    versa — this is one of the cheapest wins for startup and steady-state RAM.
+    """
+
+    module_name, _, func_name = target.rpartition(".")
+
+    def run(*args, **kwargs):
+        import importlib
+
+        return getattr(importlib.import_module(module_name), func_name)(
+            *args, **kwargs
+        )
+
+    run.__name__ = func_name
+    return run
+
+
 def _brain_actions() -> dict[str, Any]:
-    """Mirror src/main.py's action registry without importing the CLI."""
+    """Mirror src/main.py's action registry without importing the CLI.
+
+    Values are lazily-imported callables (see :func:`_lazy`), so building this
+    dict is cheap and nothing heavy is loaded until an action actually runs.
+    """
     global _BRAIN_ACTIONS
     if _BRAIN_ACTIONS is None:
-        # Lazy: importing actions pulls in pyautogui/spotipy etc. — do it in
-        # the worker thread once, off the critical start path.
-        from actions.apps import open_chrome, open_vscode
-        from actions.instagram import send_message_instagram
-        from actions.reminder import set_reminder
-        from actions.spotify import (
-            authenticate_spotify,
-            next_song,
-            open_spotify,
-            pause_song,
-            play_song,
-            previous_song,
-            resume_song,
-        )
-        from actions.web import answer_question
-        from actions.whatsapp import send_message_whatsapp
-
         _BRAIN_ACTIONS = {
-            "spotify": open_spotify,
-            "chrome": open_chrome,
-            "vscode": open_vscode,
-            "play_song": play_song,
-            "pause_song": pause_song,
-            "resume_song": resume_song,
-            "previous_song": previous_song,
-            "next_song": next_song,
-            "authenticate_spotify": authenticate_spotify,
-            "answer_question": answer_question,
-            "send_whatsapp_message": send_message_whatsapp,
-            "send_instagram_message": send_message_instagram,
-            "set_reminder": set_reminder,
+            "spotify": _lazy("actions.spotify.open_spotify"),
+            "chrome": _lazy("actions.apps.open_chrome"),
+            "vscode": _lazy("actions.apps.open_vscode"),
+            "play_song": _lazy("actions.spotify.play_song"),
+            "pause_song": _lazy("actions.spotify.pause_song"),
+            "resume_song": _lazy("actions.spotify.resume_song"),
+            "previous_song": _lazy("actions.spotify.previous_song"),
+            "next_song": _lazy("actions.spotify.next_song"),
+            "play_playlist": _lazy("actions.spotify.play_playlist"),
+            "play_album": _lazy("actions.spotify.play_album"),
+            "add_to_playlist": _lazy("actions.spotify.add_song_to_playlist"),
+            "authenticate_spotify": _lazy("actions.spotify.authenticate_spotify"),
+            "answer_question": _lazy("actions.web.answer_question"),
+            "send_whatsapp_message": _lazy("actions.whatsapp.send_message_whatsapp"),
+            "send_instagram_message": _lazy("actions.instagram.send_message_instagram"),
+            "set_reminder": _lazy("actions.reminder.set_reminder"),
+            "send_email": _lazy("actions.email.send_email_command"),
         }
     return _BRAIN_ACTIONS
 class InProcessClient:
@@ -82,10 +96,19 @@ class InProcessClient:
     def __init__(self) -> None:
         self._brain: Any = None
         self.actions: dict[str, Any] | None = None
+        # Optional GUI confirmation hook: a blocking callable(dict) -> bool
+        # invoked (off the GUI thread) before sending an email. The desktop
+        # controller plugs a QML-confirmation closure in here; the CLI leaves
+        # it None and uses the built-in console confirmation instead.
+        self._confirm_email = None
+
+    def set_email_confirmation(self, handler) -> None:
+        self._confirm_email = handler
 
     def _ensure_brain(self) -> Any:
         if self._brain is None:
             from brain.brain import Brain
+
             self._brain = Brain()
         return self._brain
 
@@ -93,6 +116,7 @@ class InProcessClient:
         """Load optional desktop integrations only for an actual command."""
         if self.actions is None:
             from actions import instagram, whatsapp
+
             self.actions = _brain_actions()
 
             def _send_message(recipient, message, platform="auto"):
@@ -107,7 +131,30 @@ class InProcessClient:
                 else:
                     print(f"No contact named {recipient} on IG or WhatsApp.")
 
-            self._ensure_brain()._send_message = _send_message  # type: ignore[attr-defined]
+            def _send_email(recipient, message, platform="auto"):
+                # Allowlist + confirmation live in actions.email; the desktop
+                # app supplies its own GUI confirmation hook instead of the
+                # console prompt.
+                from actions import email as email_actions
+
+                subject = "Message from ALANA"
+                if self._confirm_email is not None:
+                    if not self._confirm_email(
+                        {
+                            "recipient": recipient,
+                            "subject": subject,
+                            "body": message,
+                        }
+                    ):
+                        print("Email cancelled.")
+                        return
+                    email_actions.send_email(recipient, subject, message, confirm=False)
+                else:
+                    email_actions.send_email(recipient, subject, message, confirm=True)
+
+            brain = self._ensure_brain()
+            brain._send_message = _send_message  # type: ignore[attr-defined]
+            brain._send_email = _send_email  # type: ignore[attr-defined]
         return self.actions
 
     @staticmethod
@@ -115,7 +162,8 @@ class InProcessClient:
         """Avoid an expensive action-classification pass for normal conversation."""
         return bool(re.search(
             r"\b(open|launch|start|run|play|pause|resume|continue|skip|next|previous|"
-            r"message|text|dm|whatsapp|remind|set reminder|send)\b",
+            r"message|text|dm|whatsapp|remind|set reminder|send|email|mail|"
+            r"playlist|album|add to)\b",
             text,
             flags=re.IGNORECASE,
         ))
@@ -127,8 +175,8 @@ class InProcessClient:
             return {"kind": "error", "text": str(exc)}
 
         try:
-            # Chat/question turns get one concise local-model call rather than
-            # an intent model call followed by a web action or second chat call.
+            # Chat/question turns get one concise call. Knowledge questions are
+            # answered from the *live web* by Brain.chat (see brain.brain).
             if not self._looks_like_command(user_text):
                 return {"kind": "chat", "text": brain.chat(user_text)}
 
@@ -137,6 +185,7 @@ class InProcessClient:
                 user_text,
                 actions,
                 brain._send_message,  # type: ignore[attr-defined]
+                send_email=brain._send_email,  # type: ignore[attr-defined]
             )
             if executed:
                 return {"kind": "action", "text": "", "handled": True}

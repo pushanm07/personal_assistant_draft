@@ -1,0 +1,76 @@
+Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 18
+
+                Rectangle {
+                    width: 44; height: 44; radius: 22
+                    color: "transparent"
+                    border.color: palette.hudLine
+                    Text { anchors.centerIn: parent; text: "\u23EE"; color: palette.core; font.pixelSize: 16 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { if (alana) alana.spotifyPrevious() }
+                    }
+                }
+                Rectangle {
+                    width: 54; height: 54; radius: 27
+                    color: palette.wine
+                    border.color: palette.accent
+                    border.width: 1
+                    Text {
+                        anchors.centerIn: parent
+                        text: alana && alana.spotifyPlaying ? "\u23F8" : "\u25B6"
+                        color: palette.core
+                        font.pixelSize: 20
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { if (alana) alana.spotifyToggle() }
+                    }
+                }
+                Rectangle {
+                    width: 44; height: 44; radius: 22
+                    color: "transparent"
+                    border.color: palette.hudLine
+                    Text { anchors.centerIn: parent; text: "\u23ED"; color: palette.core; font.pixelSize: 16 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { if (alana) alana.spotifyNext() }
+                    }
+                }
+            }
+
+            Row {
+                width: parent.width
+                TextField {
+                    id: spotifySearch
+                    width: parent.width - 58
+                    height: 38
+                    placeholderText: "Search and play a song, artist, album"
+                    placeholderTextColor: "#9d777c"
+                    color: "#fff3f4"
+                    font { family: "Segoe UI"; pixelSize: 13 }
+                    background: Rectangle {
+                        color: "#050405"; radius: 3
+                        border.color: spotifySearch.activeFocus ? palette.accent : palette.hudLine
+                    }
+                    onAccepted: {
+                        if (alana && text.trim()) { alana.spotifySearch(text); text = "" }
+                    }
+                }
+                Rectangle {
+                    width: 48; height: 38; radius: 3
+                    color: palette.accent; opacity: 0.92
+                    Text { anchors.centerIn: parent; text: "\u27A1"; color: palette.page; font.pixelSize: 15 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (alana && spotifySearch.text.trim()) {
+                                alana.spotifySearch(spotifySearch.text); spotifySearch.text = ""
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }

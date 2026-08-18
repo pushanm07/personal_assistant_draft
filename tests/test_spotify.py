@@ -1,5 +1,7 @@
+import json
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -45,6 +47,30 @@ class SpotifyPureFunctionTests(unittest.TestCase):
             ):
                 client = spotify.get_spotify_client()
         self.assertIsNone(client)
+
+    def test_spotify_redirect_uri_matches_registered_app_callback(self) -> None:
+        spotify_config_path = Path(__file__).resolve().parents[1] / "config" / "spotify.json"
+        config = json.loads(spotify_config_path.read_text(encoding="utf-8"))
+        self.assertIn("en.wikipedia.org", str(config["redirect uri"]))
+
+    def test_app_controller_exposes_spotify_properties(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from app.ui.controller import AppController
+
+        settings = types.SimpleNamespace(
+            backend=types.SimpleNamespace(mode="inprocess"),
+            spotify=types.SimpleNamespace(poll_interval=3.0),
+            stt=types.SimpleNamespace(sample_rate=16000, record_duration=15, device=None),
+            tts=types.SimpleNamespace(enabled=False),
+            wake=types.SimpleNamespace(follow_up_enabled=False),
+        )
+
+        controller = AppController(settings)
+        self.assertIsInstance(controller.spotifyVisible, bool)
+        self.assertIsInstance(controller.spotifyTitle, str)
+        self.assertIsInstance(controller.spotifyArtist, str)
+        self.assertIsInstance(controller.spotifyArtwork, str)
+        self.assertIsInstance(controller.spotifyPlaying, bool)
 
 
 if __name__ == "__main__":

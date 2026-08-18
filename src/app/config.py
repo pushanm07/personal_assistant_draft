@@ -9,6 +9,7 @@ TTS voice or wake-word provider is always a config change, not a code change.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -81,16 +82,21 @@ class STTConfig:
 class WakeConfig:
     """Wake word is only active while Voice Mode is enabled.
 
-    ``engine="energy"`` is the zero-dependency lightweight default: a low-cost
-    amplitude/VAD gate wakes full speech recognition when sound above the
-    threshold is detected. No heavy model runs continuously. Set
-    ``engine="porcupine"`` and provide ``access_key`` to use a real wake word.
+    ``engine="keyword"`` is the zero-dependency default: an amplitude gate
+    finds each utterance and only that clip goes through the small Whisper
+    model, which is then matched against ``keywords``. ``engine="energy"``
+    drops the keyword check (any sound wakes it); ``engine="porcupine"`` with
+    an ``access_key`` uses a dedicated always-on keyword model.
     """
 
-    engine: str = "energy"
-    threshold: float = 0.045            # RMS gate for the energy engine
+    engine: str = "keyword"
+    threshold: float = 0.045            # RMS gate for the energy engine (float scale)
+    speech_threshold: float = 500.0     # RMS gate for the keyword engine (int16 scale)
     min_active_blocks: int = 2          # consecutive loud blocks to confirm
-    block_ms: int = 40
+    block_ms: int = 32
+    command_timeout: float = 6.0        # seconds to wait for the command after waking
+    follow_up_enabled: bool = True      # brief hands-free window after each reply
+    follow_up_window: float = 4.0       # how long Alana keeps listening for a follow-up
     keywords: list[str] = field(default_factory=lambda: ["alana"])
     access_key: str = ""
     model_path: str = ""
@@ -112,6 +118,17 @@ class BackendConfig:
 
 
 @dataclass
+class SpotifyConfig:
+    """How the desktop Spotify UI talks to the Web API.
+
+    The bridge polls ``current_playback()`` on a background thread *only while
+    the music panel is visible*, so idle minute-cost stays near zero.
+    """
+
+    poll_interval: float = 3.0  # seconds between now-playing snapshots
+
+
+@dataclass
 class Settings:
     window: WindowConfig = field(default_factory=WindowConfig)
     orb: OrbConfig = field(default_factory=OrbConfig)
@@ -119,6 +136,7 @@ class Settings:
     stt: STTConfig = field(default_factory=STTConfig)
     wake: WakeConfig = field(default_factory=WakeConfig)
     backend: BackendConfig = field(default_factory=BackendConfig)
+    spotify: SpotifyConfig = field(default_factory=SpotifyConfig)
 
 
 def _merge(target, override) -> None:
@@ -130,8 +148,13 @@ def _merge(target, override) -> None:
     typed configuration objects like `Settings.backend`.
     """
     for key, value in (override or {}).items():
+        # JSON is camelCase, the dataclasses are snake_case; without this the
+        # multi-word settings (minActiveBlocks, sampleRate, ...) were silently
+        # dropped and their defaults always won.
         if not hasattr(target, key):
-            continue
+            key = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+            if not hasattr(target, key):
+                continue
         current = getattr(target, key)
         # If the override is a dict and the current value is an object
         # (dataclass instance), merge into it recursively.

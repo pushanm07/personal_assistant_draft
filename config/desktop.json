@@ -7,9 +7,9 @@
     "title": "ALANA"
   },
   "orb": {
-    "fpsIdle": 24,
-    "fpsActive": 36,
-    "particleCount": 64,
+    "fpsIdle": 6,
+    "fpsActive": 12,
+    "particleCount": 12,
     "lowPower": true,
     "activeFraction": 0.6
   },
@@ -29,10 +29,14 @@
     "device": null
   },
   "wake": {
-    "engine": "energy",
+    "engine": "keyword",
     "threshold": 0.045,
+    "speechThreshold": 500.0,
     "minActiveBlocks": 2,
-    "blockMs": 40,
+    "blockMs": 32,
+    "commandTimeout": 6.0,
+    "followUpEnabled": true,
+    "followUpWindow": 4.0,
     "keywords": ["alana"],
     "accessKey": "",
     "modelPath": ""
@@ -42,5 +46,8 @@
     "host": "127.0.0.1",
     "port": 8000,
     "timeout": 90.0
+  },
+  "spotify": {
+    "pollInterval": 3.0
   }
 }

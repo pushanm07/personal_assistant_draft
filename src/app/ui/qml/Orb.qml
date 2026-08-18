@@ -36,7 +36,7 @@ Item {
                 y: coreGroup.height / 2 + Math.sin(index * Math.PI / 4) * coreGroup.height * 0.46 - height / 2
             }
         }
-        Text { anchors.centerIn: parent; text: "A"; color: "#291347"; font { family: "Consolas"; pixelSize: Math.max(18, parent.width * 0.10); bold: true; letterSpacing: 4 } }
+        Text { anchors.centerIn: parent; text: ""; color: "#291347"; font { family: "Consolas"; pixelSize: Math.max(18, parent.width * 0.10); bold: true; letterSpacing: 4 } }
 
         SequentialAnimation on scale {
             running: orb.focused

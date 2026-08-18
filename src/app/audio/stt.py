@@ -27,6 +27,14 @@ class WhisperSTT:
         self.language = language
         self._closed = False
 
+    def warmup(self) -> None:
+        """Preload the model so the first wake word isn't lost to a cold start."""
+        if self._closed:
+            return
+        from voice.transcribe import warm_up
+
+        warm_up(self.model)
+
     def transcribe(self, audio_path: str) -> str:
         if self._closed:
             return ""

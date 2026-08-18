@@ -35,7 +35,11 @@ CONFIGURED_ACTIONS = {
     "resume_song",
     "previous_song",
     "next_song",
+    "play_playlist",
+    "play_album",
+    "add_to_playlist",
     "send_message",
+    "send_email",
     "answer_question",
     "none",
     "set_reminder"
@@ -253,6 +257,8 @@ Return only JSON and nothing else.
             normalized["target"] = decision["target"].strip().lower()
         if "song" in decision and isinstance(decision.get("song"), str):
             normalized["song"] = decision["song"].strip()
+        if "playlist" in decision and isinstance(decision.get("playlist"), str):
+            normalized["playlist"] = decision["playlist"].strip()
         if "recipient" in decision and isinstance(decision.get("recipient"), str):
             normalized["recipient"] = decision["recipient"].strip().lower()
         if "platform" in decision and isinstance(decision.get("platform"), str):
@@ -266,13 +272,19 @@ Return only JSON and nothing else.
         if "text" in decision and isinstance(decision.get("text"), str):
             normalized["text"] = decision["text"].strip()
 
-        if action in {"open_app", "play_song", "send_message", "answer_question", "set_reminder"}:
-            if action == "open_app" and not normalized.get("target"):
+        if action in {"open_app", "play_song", "send_message", "send_email",
+                      "answer_question", "set_reminder", "play_playlist",
+                      "play_album", "add_to_playlist"}:
+            if action == "open_app" and not (normalized.get("target") or normalized.get("song")):
                 return {"action": "none", "confidence": 0.0, "reason": "missing target"}
             if action == "play_song" and not normalized.get("song"):
                 return {"action": "none", "confidence": 0.0, "reason": "missing song"}
-            if action == "send_message" and not normalized.get("recipient"):
+            if action in ("send_message", "send_email") and not normalized.get("recipient"):
                 return {"action": "none", "confidence": 0.0, "reason": "missing recipient"}
+            if action in ("play_playlist", "play_album") and not (normalized.get("target") or normalized.get("song")):
+                return {"action": "none", "confidence": 0.0, "reason": "missing playlist/album"}
+            if action == "add_to_playlist" and not (normalized.get("song") and normalized.get("playlist")):
+                return {"action": "none", "confidence": 0.0, "reason": "missing song or playlist"}
             if action == "answer_question" and not normalized.get("topic"):
                 return {"action": "none", "confidence": 0.0, "reason": "missing topic"}
             if action == "set_reminder":
@@ -313,6 +325,74 @@ Return only JSON and nothing else.
             return {"action": "previous_song", "confidence": 0.96}
         if re.search(r"\b(skip|next)\b", command):
             return {"action": "next_song", "confidence": 0.96}
+
+        # --- playlists / albums (must run before the generic "play" rule) ---
+        playlist_match = (
+            re.search(
+                r"\bplay\s+(?:(?:the|my|our)\s+)?(.+?)\s+playlist\b",
+                command,
+                flags=re.IGNORECASE,
+            )
+            or re.search(
+                r"\bplay\s+(?:the\s+)?playlist\s+(.+)",
+                command,
+                flags=re.IGNORECASE,
+            )
+        )
+        if playlist_match:
+            playlist = playlist_match.group(1).strip()
+            playlist = re.sub(r"\s+playlist\b$", "", playlist).strip()
+            playlist = playlist.removesuffix(" songs").removesuffix(" playlist").strip()
+            if playlist and playlist.lower() not in {"the", "my", "our"}:
+                return {
+                    "action": "play_playlist",
+                    "target": playlist,
+                    "confidence": 0.9,
+                }
+
+        album_match = (
+            re.search(
+                r"\bplay\s+(?:(?:the|my|our)\s+)?(.+?)\s+album\b",
+                command,
+                flags=re.IGNORECASE,
+            )
+            or re.search(
+                r"\bplay\s+(?:the\s+)?album\s+(.+)",
+                command,
+                flags=re.IGNORECASE,
+            )
+        )
+        if album_match:
+            album = album_match.group(1).strip()
+            album = re.sub(r"\s+album\b$", "", album).strip()
+            if album and album.lower() not in {"the", "my", "our"}:
+                return {"action": "play_album", "target": album, "confidence": 0.9}
+
+        add_match = re.search(
+            r"\badd\s+(.+?)\s+to\s+(?:(?:the|my|our)\s+)?(.+?)\s+playlist\b",
+            command,
+            flags=re.IGNORECASE,
+        )
+        if add_match:
+            song = add_match.group(1).strip()
+            playlist = add_match.group(2).strip()
+            if song and playlist:
+                return {
+                    "action": "add_to_playlist",
+                    "song": song,
+                    "playlist": playlist,
+                    "confidence": 0.88,
+                }
+
+        # --- email ---
+        if re.search(r"\b(email|mail)\b", command):
+            recipient = self._extract_email_recipient(command)
+            if recipient:
+                decision = {"action": "send_email", "recipient": recipient, "confidence": 0.9}
+                intent = self._extract_intent(prompt, recipient)
+                if intent:
+                    decision["intent"] = intent
+                return decision
 
         song_match = re.search(r"\bplay\s+(.+)", prompt, flags=re.IGNORECASE)
         if song_match:
@@ -401,6 +481,28 @@ Return only JSON and nothing else.
                 candidate = match.group(1).lower().strip()
                 if candidate and candidate not in self._NON_RECIPIENTS:
                     return candidate
+        return None
+
+    def _extract_email_recipient(self, prompt: str) -> str | None:
+        """Pull the recipient from an email request (trusted names/addresses)."""
+        try:
+            from actions.email import trusted_aliases
+        except Exception:  # pragma: no cover - defensive
+            trusted_aliases = ()
+
+        for alias in trusted_aliases():
+            if re.search(rf"\b{re.escape(alias)}\b", prompt, flags=re.IGNORECASE):
+                return alias.lower()
+
+        match = re.search(
+            r"\b(?:email|mail)\s+(?:to\s+)?([a-zA-Z0-9._@]+)",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            candidate = match.group(1).lower().strip()
+            if candidate and candidate not in self._NON_RECIPIENTS:
+                return candidate
         return None
 
     def _extract_intent(self, prompt: str, recipient: str) -> str | None:

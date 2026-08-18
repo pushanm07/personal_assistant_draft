@@ -16,6 +16,7 @@ from actions.web import answer_question
 from brain.brain import Brain
 from actions.whatsapp import send_message_whatsapp
 from actions.reminder import set_reminder
+from actions.email import send_email_command
 
 from brain import llm
 
@@ -73,6 +74,7 @@ BRAIN_ACTIONS = {
     "send_whatsapp_message": send_message_whatsapp,
     "send_instagram_message": send_message_instagram,
     "set_reminder": set_reminder,
+    "send_email": send_email_command,
 }
 
 

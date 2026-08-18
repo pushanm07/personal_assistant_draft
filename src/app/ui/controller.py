@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import math
 from typing import Any
+import threading
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from ..audio import make_stt, make_tts, make_wake, playback
 from ..audio.voice import VoiceController
+from ..audio.spotify_bridge import SpotifyBridge
 from ..backend.client import make_client
 from ..backend.worker import BackendWorker
 from .orb_state import OrbState, STATE_INTENSITY
@@ -33,6 +35,18 @@ class AppController(QObject):
     wakeDetected = Signal()
     mediaOpenChanged = Signal(bool)
     mediaPlayingChanged = Signal(bool)
+# Spotify music panel
+    spotifyVisibleChanged = Signal(bool)
+    spotifyTitleChanged = Signal(str)
+    spotifyArtistChanged = Signal(str)
+    spotifyArtworkChanged = Signal(str)
+    spotifyPlayingChanged = Signal(bool)
+
+    # Email confirmation dialog
+    emailPendingChanged = Signal(bool)
+    emailRecipientChanged = Signal(str)
+    emailSubjectChanged = Signal(str)
+    emailBodyChanged = Signal(str)
 
     def __init__(self, settings, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -44,6 +58,16 @@ class AppController(QObject):
         self._media_open = False
         self._media_playing = False
         self._media_pos = 0
+        self._spotify_visible = False
+        self._spotify_title = ""
+        self._spotify_artist = ""
+        self._spotify_artwork = ""
+        self._spotify_playing = False
+        self._email_pending = False
+        self._pending_email: dict | None = None
+        self._email_approved = False
+        self._email_response: threading.Event | None = None
+        self._email_confirm_timer: QTimer | None = None
 
         # Backend worker (in-process by default). Brain loads lazily on demand.
         self._client = make_client(settings)
@@ -58,6 +82,7 @@ class AppController(QObject):
             tts_engine = make_tts(settings)
             self._tts_bridge = playback.TTSBridge(tts_engine, parent=self)
             self._tts_bridge.speakingChanged.connect(self._on_speaking_changed)
+            self._tts_bridge.finished.connect(self._on_reply_finished)
         except Exception:
             self._tts_bridge = None
         try:
@@ -67,6 +92,22 @@ class AppController(QObject):
         except Exception:
             self._media = None
 
+        # Spotify bridge: polls the Web API only while the music panel is open.
+        self._spotify_bridge: SpotifyBridge | None = None
+        try:
+            self._spotify_bridge = SpotifyBridge(
+                poll_interval=getattr(settings.spotify, "poll_interval", 3.0),
+                parent=self,
+            )
+            self._spotify_bridge.trackChanged.connect(self._on_spotify_track)
+            self._spotify_bridge.playingChanged.connect(self._on_spotify_playing)
+        except Exception:
+            self._spotify_bridge = None
+
+        # Desktop email confirmation dialog overrides the console prompt.
+        if hasattr(self._client, "set_email_confirmation"):
+            self._client.set_email_confirmation(self._request_email_confirmation)
+
         # Voice pipeline (optional-capable: no mic or missing deps -> disabled).
         self._voice: VoiceController | None = None
         self._voice_available = False
@@ -74,7 +115,9 @@ class AppController(QObject):
             stt = make_stt(settings)
             voice = VoiceController(
                 stt,
-                lambda on_wake: make_wake(settings, on_wake),
+                lambda on_wake, on_state=None, engine=None: make_wake(
+                    settings, on_wake, on_state, engine
+                ),
                 sample_rate=settings.stt.sample_rate,
                 record_duration=settings.stt.record_duration,
                 device=settings.stt.device,
@@ -257,6 +300,114 @@ class AppController(QObject):
     @Slot(result=str)
     def mediaTitle(self) -> str:
         return self._media.title() if self._media is not None else ""
+# -- spotify music panel ---------------------------------------------- #
+    @Slot()
+    def spotifyTogglePanel(self) -> None:
+        self.setSpotifyVisible(not self._spotify_visible)
+
+    @Slot(bool)
+    def setSpotifyVisible(self, visible: bool) -> None:
+        visible = bool(visible)
+        if visible == self._spotify_visible:
+            return
+        self._spotify_visible = visible
+        self.spotifyVisibleChanged.emit(visible)
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.setActive(visible)
+        if visible:
+            self._set_orb_state(OrbState.IDLE)
+
+    @Slot(result=bool)
+    def spotifyAvailable(self) -> bool:
+        return self._spotify_bridge is not None
+
+    @Slot()
+    def spotifyPlay(self) -> None:
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.play()
+
+    @Slot()
+    def spotifyPause(self) -> None:
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.pause()
+
+    @Slot()
+    def spotifyToggle(self) -> None:
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.toggle()
+
+    @Slot()
+    def spotifyNext(self) -> None:
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.next()
+
+    @Slot()
+    def spotifyPrevious(self) -> None:
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.previous()
+
+    @Slot(str)
+    def spotifySearch(self, query: str) -> None:
+        if self._spotify_bridge is not None and query and query.strip():
+            self._spotify_bridge.searchAndPlay(query.strip())
+
+    def _on_spotify_track(self, title: str, artist: str, artwork: str) -> None:
+        self._spotify_title = title or ""
+        self._spotify_artist = artist or ""
+        self._spotify_artwork = artwork or ""
+        self.spotifyTitleChanged.emit(self._spotify_title)
+        self.spotifyArtistChanged.emit(self._spotify_artist)
+        self.spotifyArtworkChanged.emit(self._spotify_artwork)
+
+    def _on_spotify_playing(self, playing: bool) -> None:
+        self._spotify_playing = bool(playing)
+        self.spotifyPlayingChanged.emit(self._spotify_playing)
+
+    # -- email confirmation dialog ---------------------------------------- #
+    def _request_email_confirmation(self, payload: dict) -> bool:
+        """Blocking hook called from the worker thread before any email goes out."""
+        self._pending_email = dict(payload)
+        self._email_approved = False
+        self._email_response = threading.Event()
+        self._email_pending = True
+        self.emailPendingChanged.emit(True)
+        self.emailRecipientChanged.emit(str(payload.get("recipient", "")))
+        self.emailSubjectChanged.emit(str(payload.get("subject", "")))
+        self.emailBodyChanged.emit(str(payload.get("body", "")))
+        if self._email_confirm_timer is None:
+            self._email_confirm_timer = QTimer(self)
+            self._email_confirm_timer.setSingleShot(True)
+            self._email_confirm_timer.setInterval(60_000)
+            self._email_confirm_timer.timeout.connect(self._auto_reject_email)
+        self._email_confirm_timer.start()
+        self._email_response.wait()
+        return self._email_approved
+
+    def _auto_reject_email(self) -> None:
+        self._email_pending = False
+        self.emailPendingChanged.emit(False)
+        if self._email_response is not None:
+            self._email_approved = False
+            self._email_response.set()
+
+    @Slot()
+    def confirmEmailSend(self) -> None:
+        if self._email_response is not None and self._email_pending:
+            self._approve_email(True)
+
+    @Slot()
+    def cancelEmailSend(self) -> None:
+        if self._email_response is not None and self._email_pending:
+            self._approve_email(False)
+
+    def _approve_email(self, approved: bool) -> None:
+        self._email_pending = False
+        self.emailPendingChanged.emit(False)
+        if self._email_confirm_timer is not None:
+            self._email_confirm_timer.stop()
+        self._email_approved = bool(approved)
+        if self._email_response is not None:
+            self._email_response.set()
 # -- backend results ------------------------------------------------ #
     def _on_backend_result(self, result: dict[str, Any]) -> None:
         kind = result.get("kind", "chat")
@@ -291,12 +442,30 @@ class AppController(QObject):
                 self._tts_bridge.speak(text)
                 return
         self._set_orb_state(OrbState.IDLE)
+        self._arm_follow_up()
 
     def _on_speaking_changed(self, speaking: bool) -> None:
+        # Deafen the wake listener while she talks, or she answers herself.
+        if self._voice is not None:
+            self._voice.setMuted(speaking)
         if speaking:
             self._set_orb_state(OrbState.SPEAKING)
         else:
             self._set_orb_state(OrbState.IDLE)
+
+    def _on_reply_finished(self) -> None:
+        """Alana is truly done talking — open the follow-up window."""
+        self._set_orb_state(OrbState.IDLE)
+        self._arm_follow_up()
+
+    def _arm_follow_up(self) -> None:
+        """Open a short hands-free window after her reply, then back to wake."""
+        if not getattr(self._settings.wake, "follow_up_enabled", True):
+            return
+        if not self._voice_mode:
+            return
+        if self._voice is not None:
+            self._voice.beginFollowUp()
 
     def _on_media_opened(self) -> None:
         self._media_open = True
@@ -337,6 +506,9 @@ class AppController(QObject):
 
     def shutdown(self) -> None:
         self._energy_timer.stop()
+        self._auto_reject_email()
+        if self._spotify_bridge is not None:
+            self._spotify_bridge.shutdown()
         if self._voice is not None:
             self._voice.shutdown()
         if self._tts_bridge is not None:
@@ -344,3 +516,15 @@ class AppController(QObject):
         if self._media is not None:
             self._media.stop()
         self._worker.shutdown()
+# -- QML properties ------------------------------------------------------ #
+    # Spotify panel
+    spotifyVisible = Property(bool, lambda self: self._spotify_visible, notify=spotifyVisibleChanged)
+    spotifyTitle = Property(str, lambda self: self._spotify_title, notify=spotifyTitleChanged)
+    spotifyArtist = Property(str, lambda self: self._spotify_artist, notify=spotifyArtistChanged)
+    spotifyArtwork = Property(str, lambda self: self._spotify_artwork, notify=spotifyArtworkChanged)
+    spotifyPlaying = Property(bool, lambda self: self._spotify_playing, notify=spotifyPlayingChanged)
+    # Email confirmation dialog
+    emailPending = Property(bool, lambda self: self._email_pending, notify=emailPendingChanged)
+    emailRecipient = Property(str, lambda self: str(self._pending_email.get("recipient", "")) if self._pending_email else "", notify=emailRecipientChanged)
+    emailSubject = Property(str, lambda self: str(self._pending_email.get("subject", "")) if self._pending_email else "", notify=emailSubjectChanged)
+    emailBody = Property(str, lambda self: str(self._pending_email.get("body", "")) if self._pending_email else "", notify=emailBodyChanged)

@@ -62,6 +62,18 @@ Window {
             anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
             spacing: 6
 
+Rectangle {
+                width: 40; height: 28; radius: 2
+                color: alana && alana.spotifyVisible ? palette.wine : "transparent"
+                border.color: alana && alana.spotifyVisible ? palette.accent : palette.hudLine
+                Text {
+                    anchors.centerIn: parent
+                    text: "\u266A"
+                    color: alana && alana.spotifyVisible ? palette.core : palette.hudText
+                    font.pixelSize: 14
+                }
+                MouseArea { anchors.fill: parent; onClicked: alana.spotifyTogglePanel() }
+            }
             Rectangle {
                 width: 34; height: 28; radius: 2
                 color: alana && alana.mini ? palette.wine : "transparent"
@@ -427,6 +439,265 @@ Window {
     }
 
     // ===========================================================================
+    
+
+    // ===========================================================================
+    // SPOTIFY MUSIC PLAYER — custom theme panel (right side, toggleable)
+    // ===========================================================================
+    Item {
+        id: spotifyPanel
+        anchors {
+            left: hud.horizontalCenter; leftMargin: 20
+            right: hud.right; rightMargin: 14
+            bottom: inputRow.top; bottomMargin: 12
+            top: titleBar.bottom; topMargin: 10
+        }
+        z: 6
+        visible: alana && alana.spotifyVisible
+        opacity: visible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 220 } }
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#0c0507"
+            border.color: palette.accent
+            border.width: 1
+            opacity: 0.97
+        }
+
+        Column {
+            anchors { fill: parent; topMargin: 16; leftMargin: 22; rightMargin: 22; bottomMargin: 18 }
+            spacing: 12
+
+            Row {
+                width: parent.width
+                Text {
+                    text: "NOW PLAYING // SPOTIFY"
+                    color: palette.hudText
+                    font { family: "Consolas"; pixelSize: 9; letterSpacing: 2 }
+                }
+                Item { width: parent.width - 270; height: 1 }
+                Text {
+                    text: "PLAYBACK UNIT"
+                    color: palette.hudText
+                    font { family: "Consolas"; pixelSize: 8; letterSpacing: 2 }
+                }
+            }
+
+            Rectangle {
+                id: artFrame
+                width: Math.min(parent.width, parent.height * 0.52)
+                height: width
+                anchors.horizontalCenter: parent.horizontalCenter
+                radius: 6
+                color: "#1a0b1e"
+                border.color: palette.hudLine
+                border.width: 1
+                clip: true
+
+                Image {
+                    anchors.fill: parent
+                    source: alana && alana.spotifyArtwork ? alana.spotifyArtwork : ""
+                    fillMode: Image.PreserveAspectCrop
+                    cache: false
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    border.color: palette.accent
+                    border.width: alana && alana.spotifyArtwork ? 1 : 0
+                    visible: alana && alana.spotifyArtwork
+                }
+                Text {
+                    anchors.centerIn: parent
+                    visible: !(alana && alana.spotifyArtwork)
+                    text: "\u266A"
+                    color: palette.hudText
+                    font.pixelSize: 64
+                }
+            }
+
+            Text {
+                width: parent.width
+                text: alana ? alana.spotifyTitle : ""
+                color: palette.textPrimary
+                font { family: "Segoe UI"; pixelSize: 17; bold: true }
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.NoWrap
+            }
+
+            Text {
+                width: parent.width
+                text: alana ? alana.spotifyArtist : ""
+                color: palette.textDim
+                font { family: "Segoe UI"; pixelSize: 13 }
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+    Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 18
+
+                Rectangle {
+                    width: 44; height: 44; radius: 22
+                    color: "transparent"
+                    border.color: palette.hudLine
+                    Text { anchors.centerIn: parent; text: "\u23EE"; color: palette.core; font.pixelSize: 16 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { if (alana) alana.spotifyPrevious() }
+                    }
+                }
+                Rectangle {
+                    width: 54; height: 54; radius: 27
+                    color: palette.wine
+                    border.color: palette.accent
+                    border.width: 1
+                    Text {
+                        anchors.centerIn: parent
+                        text: alana && alana.spotifyPlaying ? "\u23F8" : "\u25B6"
+                        color: palette.core
+                        font.pixelSize: 20
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { if (alana) alana.spotifyToggle() }
+                    }
+                }
+                Rectangle {
+                    width: 44; height: 44; radius: 22
+                    color: "transparent"
+                    border.color: palette.hudLine
+                    Text { anchors.centerIn: parent; text: "\u23ED"; color: palette.core; font.pixelSize: 16 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { if (alana) alana.spotifyNext() }
+                    }
+                }
+            }
+
+            Row {
+                width: parent.width
+                TextField {
+                    id: spotifySearch
+                    width: parent.width - 58
+                    height: 38
+                    placeholderText: "Search and play a song, artist, album"
+                    placeholderTextColor: "#9d777c"
+                    color: "#fff3f4"
+                    font { family: "Segoe UI"; pixelSize: 13 }
+                    background: Rectangle {
+                        color: "#050405"; radius: 3
+                        border.color: spotifySearch.activeFocus ? palette.accent : palette.hudLine
+                    }
+                    onAccepted: {
+                        if (alana && text.trim()) { alana.spotifySearch(text); text = "" }
+                    }
+                }
+                Rectangle {
+                    width: 48; height: 38; radius: 3
+                    color: palette.accent; opacity: 0.92
+                    Text { anchors.centerIn: parent; text: "\u27A1"; color: palette.page; font.pixelSize: 15 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (alana && spotifySearch.text.trim()) {
+                                alana.spotifySearch(spotifySearch.text); spotifySearch.text = ""
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ===========================================================================
+    // EMAIL CONFIRMATION  (show before any email is actually sent)
+    // ===========================================================================
+    Item {
+        id: emailConfirmOverlay
+        anchors.fill: parent
+        z: 20
+        visible: alana && alana.emailPending
+        opacity: visible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton }
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#000000"
+            opacity: 0.6
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(520, parent.width - 60)
+            height: 360
+            radius: 8
+            color: palette.page
+            border.color: palette.accent
+            border.width: 2
+
+            Column {
+                anchors { fill: parent; topMargin: 22; leftMargin: 24; rightMargin: 24; bottomMargin: 20 }
+                spacing: 12
+
+                Text {
+                    text: "EMAIL CONFIRMATION"
+                    color: palette.core
+                    font { family: "Consolas"; pixelSize: 12; letterSpacing: 3 }
+                }
+                Text {
+                    text: "To: " + (alana ? alana.emailRecipient : "")
+                    color: palette.textPrimary
+                    font { family: "Segoe UI"; pixelSize: 13 }
+                }
+                Text {
+                    text: "Subject: " + (alana ? alana.emailSubject : "")
+                    color: palette.textPrimary
+                    font { family: "Segoe UI"; pixelSize: 13 }
+                }
+                Rectangle { width: parent.width; height: 1; color: palette.hudLine }
+
+                Flickable {
+                    width: parent.width
+                    height: 140
+                    clip: true
+                    Text {
+                        width: parent.width
+                        text: alana ? alana.emailBody : ""
+                        color: palette.textDim
+                        font { family: "Segoe UI"; pixelSize: 12 }
+                        wrapMode: Text.Wrap
+                        textFormat: Text.PlainText
+                    }
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                }
+
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 16
+                    Rectangle {
+                        width: 150; height: 42; radius: 4
+                        color: palette.accent
+                        Text { anchors.centerIn: parent; text: "SEND"; color: palette.page; font { family: "Consolas"; pixelSize: 12; letterSpacing: 3 } }
+                        MouseArea { anchors.fill: parent; onClicked: { if (alana) alana.confirmEmailSend() } }
+                    }
+                    Rectangle {
+                        width: 150; height: 42; radius: 4
+                        color: "transparent"
+                        border.color: palette.hudLine
+                        Text { anchors.centerIn: parent; text: "CANCEL"; color: palette.hudText; font { family: "Consolas"; pixelSize: 12; letterSpacing: 3 } }
+                        MouseArea { anchors.fill: parent; onClicked: { if (alana) alana.cancelEmailSend() } }
+                    }
+                }
+            }
+        }
+    }
+
     // MINI MODE — compact orb-only floating widget (toggled from title bar)
     // ===========================================================================
     Item {

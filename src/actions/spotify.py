@@ -16,7 +16,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APPS_CONFIG = PROJECT_ROOT / "config" / "apps.json"
 SPOTIFY_CONFIG = PROJECT_ROOT / "config" / "spotify.json"
 TOKEN_CACHE = PROJECT_ROOT / ".spotify_token_cache"
-SPOTIFY_SCOPES = "user-read-private user-library-read user-read-playback-state user-modify-playback-state"
+# Keep compatibility with earlier auth runs that cached tokens under a different
+# filename or in the default spotipy location. The web app was already using a
+# valid redirect URI; the real bug was that the client ignored the existing cache.
+DEFAULT_SPOTIFY_CACHE = PROJECT_ROOT / ".cache"
+# Read + modify playback, library, and playlists so every ALANA control works.
+SPOTIFY_SCOPES = (
+    "user-read-private user-read-playback-state user-modify-playback-state "
+    "user-read-currently-playing user-library-read user-library-modify "
+    "playlist-read-private playlist-modify-public playlist-modify-private"
+)
 NON_ORIGINAL_MARKERS = ("cover", "tribute", "karaoke", "instrumental")
 
 # A single authenticated client is reused for every command. Building a fresh
@@ -39,30 +48,54 @@ def get_app_path(app_name: str) -> Path:
         raise ValueError(f"No path configured for '{app_name}'.") from error
 
 
+def _load_spotify_config() -> dict:
+    """Load config/spotify.json (client id/secret/redirect)."""
+    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
+        config = json.load(config_file)
+    if not all(key in config for key in ("client id", "client secret", "redirect uri")):
+        raise ValueError("config/spotify.json must contain 'client id', 'client secret' and 'redirect uri'.")
+    return config
+
+
+def _resolve_token_cache() -> Path | None:
+    """Locate an existing Spotify token cache in any standard project path."""
+    candidates = [
+        TOKEN_CACHE,
+        DEFAULT_SPOTIFY_CACHE,
+        PROJECT_ROOT / ".cache" / "spotipy",
+        Path.home() / ".cache" / "spotipy",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def get_spotify_client() -> "spotipy.Spotify | None":
     """Return the process-wide authenticated Spotify client, building it once.
 
-    Returns ``None`` (and prints a hint) when ALANA is not yet authenticated.
+    The app must respect any existing token cache instead of assuming every
+    Spotify session needs a brand-new auth flow. If no cache exists, return none.
     """
     global _spotify_client
     if _spotify_client is not None:
         return _spotify_client
 
-    if not TOKEN_CACHE.is_file():
+    cache_path = _resolve_token_cache()
+    if cache_path is None:
         print("Spotify is not authenticated. Please run 'authenticate_spotify' first.")
         return None
 
     with _client_lock:
         if _spotify_client is not None:
             return _spotify_client
-        with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-            spotify_config = json.load(config_file)
+        spotify_config = _load_spotify_config()
         auth_manager = SpotifyOAuth(
             client_id=spotify_config["client id"],
             client_secret=spotify_config["client secret"],
             redirect_uri=spotify_config["redirect uri"],
             scope=SPOTIFY_SCOPES,
-            cache_path=str(TOKEN_CACHE),
+            cache_path=str(cache_path),
             open_browser=False,
         )
         _spotify_client = spotipy.Spotify(auth_manager=auth_manager)
@@ -81,9 +114,13 @@ def open_spotify() -> None:
     print("Opening Spotify...")
 
 def authenticate_spotify() -> None:
-    """Authorize ALANA to use the Spotify Web API and cache its token."""
-    with SPOTIFY_CONFIG.open(encoding="utf-8") as config_file:
-        spotify_config = json.load(config_file)
+    """Authorize ALANA to use the Spotify Web API and cache its token.
+
+    Opens the browser and waits for you to approve; paste the final URL back
+    into the terminal when your browser lands on the redirect page. The token
+    cache is written to ``.spotify_token_cache`` and reused afterwards.
+    """
+    spotify_config = _load_spotify_config()
 
     auth_manager = SpotifyOAuth(
         client_id=spotify_config["client id"],
@@ -93,8 +130,28 @@ def authenticate_spotify() -> None:
         cache_path=str(TOKEN_CACHE),
         open_browser=True,
     )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
 
+    try:
+        code = auth_manager.get_auth_response()
+    except Exception:
+        # Manual fallback: browser already open, ask the user to paste the URL.
+        print("If your browser did not open, or you were not redirected, paste the")
+        print("complete URL from the address bar here:")
+        response_url = input("Redirect URL: ").strip()
+        from urllib.parse import urlparse, parse_qs
+
+        query = parse_qs(urlparse(response_url).query)
+        code = query.get("code", [None])[0]
+        if not code:
+            print("No authorization code found in that URL.")
+            return
+
+    token: dict = auth_manager.get_access_token(code)
+    if not token:
+        print("Spotify authentication failed.")
+        return
+
+    spotify = spotipy.Spotify(auth_manager=auth_manager)
     try:
         profile = spotify.current_user()
     except Exception as error:
@@ -220,6 +277,219 @@ def play_song(song_name: str) -> None:
         return
 
     print(f"Playing '{track['name']}' by {track['artists'][0]['name']}.")
+
+
+def _pick_or_open_device(spotify: "spotipy.Spotify") -> str | None:
+    """Return an active-worthy device id, launching Spotify if none is visible.
+
+    Returns None when no usable playback device exists after one retry.
+    """
+    def _devices() -> list:
+        try:
+            return spotify.devices().get("devices", []) or []
+        except Exception:
+            return []
+
+    devices = _devices()
+    if not devices:
+        print("Opening Spotify so it can become a playback device...")
+        open_spotify()
+        time.sleep(4)
+        devices = _devices()
+
+    if not devices:
+        print("No Spotify playback device is available. Open Spotify, start any song once, then try again.")
+        return None
+
+    device = next((item for item in devices if item.get("is_active")), devices[0])
+    device_id = device.get("id")
+    if not device_id:
+        print("Spotify returned a playback device without an ID.")
+        return None
+    return device_id
+
+
+def _start_uris(spotify: "spotipy.Spotify", uris: list[str], *, force_play: bool = True) -> bool:
+    """Transfer to a device and start playback of the given track URIs."""
+    from spotipy import SpotifyException
+
+    try:
+        device_id = _pick_or_open_device(spotify)
+        if device_id is None:
+            return False
+        try:
+            spotify.start_playback(device_id=device_id, uris=uris)
+        except SpotifyException:
+            # The device may have lost focus; transfer then retry once.
+            spotify.transfer_playback(device_id, force_play=force_play)
+            spotify.start_playback(device_id=device_id, uris=uris)
+        return True
+    except Exception as error:
+        print(f"Spotify could not start playback: {error}")
+        return False
+
+
+def _start_context(spotify: "spotipy.Spotify", context_uri: str, *, force_play: bool = True) -> bool:
+    """Transfer to a device and start playback of a playlist/album context."""
+    from spotipy import SpotifyException
+
+    try:
+        device_id = _pick_or_open_device(spotify)
+        if device_id is None:
+            return False
+        try:
+            spotify.start_playback(device_id=device_id, context_uri=context_uri)
+        except SpotifyException:
+            spotify.transfer_playback(device_id, force_play=force_play)
+            spotify.start_playback(device_id=device_id, context_uri=context_uri)
+        return True
+    except Exception as error:
+        print(f"Spotify could not start playback: {error}")
+        return False
+
+
+def search_songs(query: str, limit: int = 5) -> list[dict]:
+    """Return a compact list of track dicts for *query* (no printing)."""
+    spotify = get_spotify_client()
+    if spotify is None:
+        return []
+    try:
+        results = spotify.search(q=query, type="track", limit=limit)
+    except Exception:
+        return []
+    tracks: list[dict] = []
+    for item in results.get("tracks", {}).get("items", []) or []:
+        album = item.get("album") or {}
+        images = album.get("images") or []
+        tracks.append({
+            "uri": item.get("uri"),
+            "name": item.get("name", ""),
+            "artist": ", ".join(a.get("name", "") for a in item.get("artists", []) or []),
+            "album": album.get("name", ""),
+            "artwork": images[0].get("url") if images else "",
+            "duration_ms": item.get("duration_ms", 0),
+        })
+    return tracks
+
+
+def play_playlist(playlist_name: str) -> None:
+    """Search for a playlist and start playing it."""
+    spotify = get_spotify_client()
+    if spotify is None:
+        return
+
+    query = playlist_name.strip().removesuffix(" playlist").strip()
+    try:
+        results = spotify.search(q=query, type="playlist", limit=5)
+    except Exception as error:
+        print(f"Spotify could not search for playlist '{playlist_name}': {error}")
+        return
+
+    playlists = results.get("playlists", {}).get("items", []) or []
+    playlists = [p for p in playlists if not (p.get("name") or "").startswith("Discover Weekly")]
+    if not playlists:
+        print(f"No playlist found for '{playlist_name}'.")
+        return
+
+    playlist = playlists[0]
+    if _start_context(spotify, playlist["uri"]):
+        print(f"Playing playlist '{playlist['name']}'.")
+
+
+def play_album(album_name: str) -> None:
+    """Search for an album and start playing it."""
+    spotify = get_spotify_client()
+    if spotify is None:
+        return
+
+    query = album_name.strip().removesuffix(" album").strip()
+    try:
+        results = spotify.search(q=query, type="album", limit=5)
+    except Exception as error:
+        print(f"Spotify could not search for album '{album_name}': {error}")
+        return
+
+    albums = results.get("albums", {}).get("items", []) or []
+    if not albums:
+        print(f"No album found for '{album_name}'.")
+        return
+
+    album = albums[0]
+    if _start_context(spotify, album["uri"]):
+        print(f"Playing album '{album['name']}'.")
+
+
+def add_song_to_playlist(song_name: str, playlist_name: str) -> None:
+    """Search for *song_name* and add it to *playlist_name*."""
+    spotify = get_spotify_client()
+    if spotify is None:
+        return
+
+    title, artist = split_song_and_artist(song_name)
+    query = f"track:{title}"
+    if artist:
+        query += f" artist:{artist}"
+    try:
+        results = spotify.search(q=query, type="track", limit=10)
+        tracks = results.get("tracks", {}).get("items", []) or []
+        playlists_res = spotify.search(
+            q=playlist_name.strip().removesuffix(" playlist").strip(),
+            type="playlist",
+            limit=5,
+        )
+        playlists = playlists_res.get("playlists", {}).get("items", []) or []
+    except Exception as error:
+        print(f"Spotify could not search for '{song_name}' / '{playlist_name}': {error}")
+        return
+
+    if not tracks:
+        print(f"No song found for '{song_name}'.")
+        return
+    if not playlists:
+        print(f"No playlist found for '{playlist_name}'.")
+        return
+
+    track = choose_track(tracks, title, artist)
+    playlist = playlists[0]
+    try:
+        spotify.playlist_add_items(playlist["id"], [track["uri"]])
+    except Exception as error:
+        print(f"Spotify could not add the track to the playlist: {error}")
+        return
+
+    print(f"Added '{track['name']}' to playlist '{playlist['name']}'.")
+
+
+def get_playback_state() -> dict | None:
+    """Return a compact snapshot for ALANA's music UI, or None if unavailable.
+
+    Print-free on purpose: the desktop bridge polls this without spamming the
+    console.
+    """
+    spotify = get_spotify_client()
+    if spotify is None:
+        return None
+    try:
+        playback = spotify.current_playback()
+    except Exception:
+        return None
+    if playback is None:
+        return {"playing": False, "title": "", "artist": "", "artwork": "", "progress_ms": 0, "duration_ms": 0}
+
+    item = playback.get("item") or {}
+    album = item.get("album") or {}
+    images = album.get("images") or []
+    artists = item.get("artists") or []
+    return {
+        "playing": bool(playback.get("is_playing")),
+        "title": item.get("name", ""),
+        "artist": ", ".join(a.get("name", "") for a in artists),
+        "artwork": images[0].get("url") if images else "",
+        "progress_ms": playback.get("progress_ms", 0) or 0,
+        "duration_ms": item.get("duration_ms", 0) or 0,
+        "device": (playback.get("device") or {}).get("name", ""),
+    }
+
 
 def pause_song() -> None:
     """Pause the currently playing song on Spotify."""

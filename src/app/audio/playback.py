@@ -21,6 +21,9 @@ class TTSBridge(QObject):
     """Speak ALANA's replies aloud using the configured engine."""
 
     speakingChanged = Signal(bool)
+    # Emitted only when a reply finishes playing (or fails to synthesize),
+    # so the controller knows Alana is truly done talking.
+    finished = Signal()
 
     def __init__(self, engine: TTSEngine, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -63,7 +66,9 @@ class TTSBridge(QObject):
                 Q_ARG(str, str(out)),
             )
         except Exception:  # pragma: no cover - network/provider dependent
-            pass
+            # TTS failed (offline etc.); signal that the reply is "done" so the
+            # follow-up window still opens and the UI doesn't stall.
+            self.finished.emit()
 
     @Slot(str)
     def _play(self, path: str) -> None:
@@ -79,6 +84,7 @@ class TTSBridge(QObject):
     def _on_status(self, status) -> None:
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             self._set_speaking(False)
+            self.finished.emit()
 
     def _set_speaking(self, value: bool) -> None:
         if value != self._speaking:
