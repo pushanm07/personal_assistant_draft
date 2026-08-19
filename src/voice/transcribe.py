@@ -75,12 +75,21 @@ def transcribe_audio(
     segments, _ = model.transcribe(
         audio_path,
         language=language,
-        # VAD skips long stretches of silence up front, so Whisper only decodes
-        # the actual speech — a steady speed win on most real recordings.
+        # VAD skips silence while padding speech edges so quiet word endings
+        # are less likely to be clipped.
         vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
+        vad_parameters={
+            "min_silence_duration_ms": 350,
+            "speech_pad_ms": 200,
+        },
         condition_on_previous_text=False,
-        beam_size=1,
+        beam_size=5,
+        best_of=5,
+        temperature=0.0,
+        initial_prompt=(
+            "ALANA voice command. Common names and apps: Spotify, WhatsApp, "
+            "Instagram, Chrome, VS Code."
+        ),
     )
 
     text = "".join(segment.text for segment in segments).strip()

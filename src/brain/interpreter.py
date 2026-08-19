@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +81,7 @@ class Interpreter:
     the action itself.
     """
 
-    def __init__(self, model: str = "llama3.2:latest") -> None:
+    def __init__(self, model: str = "qwen2.5:7b") -> None:
         self.model = model
         self.personality = load_personality()
         self.contacts = load_contacts()
@@ -152,7 +153,46 @@ class Interpreter:
         for typo, fixed in replacements.items():
             text = re.sub(rf"\b{re.escape(typo)}\b", fixed, text, flags=re.IGNORECASE)
 
-        return text
+        return self._fuzzy_command_words(text)
+
+    def _fuzzy_command_words(self, text: str) -> str:
+        """Correct close speech-recognition matches for known ALANA words.
+
+        Corrections are deliberately restricted to command vocabulary, app
+        names, and configured contacts so ordinary song titles and questions
+        are left alone.
+        """
+        vocabulary = {
+            "open", "launch", "start", "run", "play", "pause", "stop",
+            "resume", "continue", "unpause", "previous", "prev", "back",
+            "last", "skip", "next", "message", "msg", "dm", "text",
+            "whatsapp", "instagram", "tell", "ping", "remind", "reminder",
+            "shoot", "send", "email", "mail", "playlist", "album", "add",
+            "spotify", "chrome", "vscode", "music", "tunes", "jams",
+            *KNOWN_APPS,
+            *self.contacts,
+        }
+        contact_words = {word.lower() for word in self.contacts}
+        canonical = sorted({word.lower() for word in vocabulary if len(word) >= 4})
+        if not canonical:
+            return text
+
+        def replace(match: re.Match[str]) -> str:
+            word = match.group(0)
+            lowered = word.lower()
+            if lowered in vocabulary or len(lowered) < 4:
+                return word
+            best = max(canonical, key=lambda candidate: SequenceMatcher(
+                None, lowered, candidate
+            ).ratio())
+            score = SequenceMatcher(None, lowered, best).ratio()
+            length_gap = abs(len(lowered) - len(best))
+            threshold = 0.70 if best in contact_words else 0.84
+            if score >= threshold and length_gap <= 2:
+                return best
+            return word
+
+        return re.sub(r"[A-Za-z]+", replace, text)
 
     def _llm_interpret(self, prompt: str) -> dict[str, Any] | None:
         """Ask Ollama for a structured interpretation when available."""

@@ -8,6 +8,20 @@ from brain.interpreter import Interpreter
 
 
 class InterpreterContractTests(unittest.TestCase):
+    def test_fuzzy_command_word_recovers_misheard_spotify(self) -> None:
+        interpreter = Interpreter()
+        interpretation = interpreter.interpret("open spotiffy")
+
+        self.assertEqual(interpretation["action"], "open_app")
+        self.assertEqual(interpretation["target"], "spotify")
+
+    def test_fuzzy_contact_recovers_misheard_name(self) -> None:
+        interpreter = Interpreter()
+        interpretation = interpreter.interpret("tell chinmei im late")
+
+        self.assertEqual(interpretation["action"], "send_message")
+        self.assertEqual(interpretation["recipient"], "chinmay")
+
     def test_open_spotify_request_is_interpreted_as_open_app(self) -> None:
         interpreter = Interpreter()
         interpretation = interpreter.interpret("can you open spotfy for me pls")

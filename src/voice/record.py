@@ -43,7 +43,7 @@ START_TIMEOUT = 8.0
 TRAILING_SILENCE = 1.0
 
 # RMS amplitude (int16 scale) above which a block counts as speech.
-SILENCE_THRESHOLD = 500
+SILENCE_THRESHOLD = 350
 
 # Audio is processed in blocks of this many milliseconds.
 BLOCK_MS = 50

@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - optional dependency
     _ollama_chat = None
 
 
-DEFAULT_MODEL = "llama3.2:latest"
+DEFAULT_MODEL = "qwen2.5:7b"
 
 # Keep the model loaded between requests so we never pay the reload cost.
 KEEP_ALIVE = "30m"

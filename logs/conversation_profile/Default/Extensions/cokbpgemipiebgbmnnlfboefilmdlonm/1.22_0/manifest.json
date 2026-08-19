@@ -1,0 +1,25 @@
+{
+   "author": "Trellix LLC",
+   "background": {
+      "service_worker": "background.js"
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "js": [ "content.js" ],
+      "matches": [ "*://*/*" ],
+      "run_at": "document_end"
+   } ],
+   "description": "Trellix DLP Extension monitors address bar URL and helps to protect corporate data uploads",
+   "host_permissions": [ "*://*/*", "\u003Call_urls>" ],
+   "icons": {
+      "128": "Trellix128.png",
+      "16": "Trellix16.png",
+      "32": "Trellix32.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqPUooqr9v0QYseivl6ISkwtmVSd3+j4K+T/ii1BfeVL5z9mM7qa9egSsXa+Lr/C+rON31CM+TQxYbejWnBJczxvFAlG5xO91jyefv6fN/fkRxlAFEIYcKvLtra3D4ibyptoPvT3ErstSK+jRrUELWJlt7ndXx81vgx2L3WplHiTYjLyE8Em8/58j6CnVdP/pNIRDwH5IUNzcAq8YoJ5xJc+aRkYy1j1CB+9e+tQOJomTppxHGsPmaRL7Rf9TOdzCqEiLoXLxegjm5yrt/0/ka1ERVQc2e6q+G04XGVy+Im6ZTDrGCyj2uTeECjANjQ4Yu6v27DwdwtouO4iuZMTKAwIDAQAB",
+   "manifest_version": 3,
+   "name": "Trellix DLP Endpoint Extension",
+   "permissions": [ "tabs", "webRequest", "scripting", "webNavigation", "webRequestBlocking", "storage", "nativeMessaging" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.22"
+}

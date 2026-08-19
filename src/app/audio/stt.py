@@ -22,7 +22,7 @@ class STTEngine(Protocol):
 
 
 class WhisperSTT:
-    def __init__(self, model: str = "tiny", language: str = "en") -> None:
+    def __init__(self, model: str = "small", language: str = "en") -> None:
         self.model = model
         self.language = language
         self._closed = False

@@ -71,7 +71,7 @@ class TTSConfig:
 @dataclass
 class STTConfig:
     engine: str = "whisper"             # replaceable speech engine
-    model: str = "tiny"                 # 'tiny' keeps RAM low; 'small' for quality
+    model: str = "small"                # better command accuracy than 'tiny'
     language: str = "en"
     sample_rate: int = 16000
     record_duration: float = 12.0

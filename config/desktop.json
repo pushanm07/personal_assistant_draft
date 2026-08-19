@@ -22,7 +22,7 @@
   },
   "stt": {
     "engine": "whisper",
-    "model": "tiny",
+    "model": "small",
     "language": "en",
     "sampleRate": 16000,
     "recordDuration": 12.0,
