@@ -119,7 +119,7 @@ def _best_answer(question: str, context: str) -> str:
             {"role": "user", "content": f"Question: {question}\n\nContext:\n{context[:12000]}"},
         ],
         temperature=0.2,
-        num_predict=256,
+        num_predict=llm.MAX_ANSWER_TOKENS,
     )
     if content:
         content = re.sub(r"\s+", " ", content).strip().strip('"').strip()

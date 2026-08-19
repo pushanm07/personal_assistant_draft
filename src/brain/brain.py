@@ -240,7 +240,7 @@ class Brain:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.6,
-            num_predict=100,
+            num_predict=llm.MAX_CHAT_TOKENS,
         )
         if reply and reply.strip():
             return reply.strip()

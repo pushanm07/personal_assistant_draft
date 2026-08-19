@@ -46,9 +46,17 @@ TRUSTED_RECIPIENTS = frozenset(
 # also accepted and checked against the allowlist directly.
 _RECIPIENT_ALIASES = {
     "chinmay": "chinmayshyamsundar@gmail.com",
+    "jim": "chinmayshyamsundar@gmail.com",
+    "jimbo": "chinmayshyamsundar@gmail.com",
+    "chin": "chinmayshyamsundar@gmail.com",
+    "she may": "chinmayshyamsundar@gmail.com",
     "chinmayshyamsundar": "chinmayshyamsundar@gmail.com",
     "chinmayshyamsundar@gmail.com": "chinmayshyamsundar@gmail.com",
     "pushan": "pushanmukherjee07@gmail.com",
+    "push on": "pushanmukherjee07@gmail.com",
+    "pushanmukherjee": "pushanmukherjee07@gmail.com",
+    "push": "pushanmukherjee07@gmail.com",
+    "pusher": "pushanmukherjee07@gmail.com",
     "pushanmukherjee07": "pushanmukherjee07@gmail.com",
     "pushanmukherjee07@gmail.com": "pushanmukherjee07@gmail.com",
     "abhinav": "abhinavpalanivel@gmail.com",

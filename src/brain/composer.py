@@ -82,7 +82,7 @@ class Composer:
             ],
             model=self.model,
             temperature=0.7,
-            num_predict=120,
+            num_predict=llm.MAX_COMPOSE_TOKENS,
         )
         if content:
             content = self._clean(content.strip())

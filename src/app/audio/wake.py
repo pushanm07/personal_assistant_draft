@@ -50,7 +50,7 @@ def _rms(block: np.ndarray) -> float:
 # Whisper-tiny spells the name a dozen ways; treat all of them as a hit.
 _WAKE_VARIANTS = (
     "alana", "alanna", "alaina", "alena", "allana", "elana", "elena",
-    "ilana", "ulana", "lana", "alonna", "alarna",
+    "ilana", "ulana", "lana", "alonna", "alarna", "alan", "lawn", "lawn uh", "hey"
 )
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
 

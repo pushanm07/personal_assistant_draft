@@ -10,6 +10,12 @@ get the same latency tuning in one place:
   answers come back quickly instead of the model rambling.
 - ``warm_up`` primes the model at startup (in a background thread) so the
   first real command is already fast.
+
+Token ceilings are tuned per use-case (see the ``MAX_*_TOKENS`` constants
+below).  ``num_predict`` is a *ceiling*, not a target: the model stops on
+its own end-of-response token, so a short reply is still short.  The limits
+only matter when a response genuinely needs more room — e.g. a movie
+summary that would otherwise be cut off at 100-256 tokens.
 """
 
 from __future__ import annotations
@@ -38,6 +44,32 @@ CACHE_MAX_TEMPERATURE = 0.5
 
 # Result cache TTL in seconds for identical deterministic calls.
 CACHE_TTL = 300.0
+
+# ---------------------------------------------------------------------------
+# Per-use-case output token ceilings (``num_predict`` in Ollama parlance).
+#
+# These are *ceilings*, not targets — the model stops on its own
+# end-of-response token, so short replies stay short.  They only matter
+# when a response genuinely needs more room, which is exactly the case that
+# was getting cut off ("summarise this movie", web-sourced answers, etc.).
+# ---------------------------------------------------------------------------
+
+# Casual conversational fallback (Brain.chat).  100 was the old default and
+# truncated longer answers mid-sentence; 512 lets Alana finish summaries and
+# multi-point replies without rambling on simple questions.
+MAX_CHAT_TOKENS = 512
+
+# Web-sourced factual answers (actions.web._best_answer).  Same rationale —
+# a movie/summary answer often exceeds 256 tokens.
+MAX_ANSWER_TOKENS = 512
+
+# Drafting a single outgoing message — deliberately short ("one or two short
+# sentences" per the composer prompt), so this stays small.
+MAX_COMPOSE_TOKENS = 120
+
+# Intent classification (compact JSON).  The output is a tiny JSON blob, so
+# a modest ceiling keeps the call snappy and deterministic.
+MAX_INTENT_TOKENS = 200
 
 _cache: dict[tuple, tuple[float, str | None]] = {}
 _cache_lock = threading.Lock()
@@ -74,7 +106,7 @@ def chat(
     *,
     model: str = DEFAULT_MODEL,
     fmt: str | None = None,
-    num_predict: int = 256,
+    num_predict: int = MAX_ANSWER_TOKENS,
     temperature: float = 0.4,
     top_k: int = 40,
 ) -> str | None:

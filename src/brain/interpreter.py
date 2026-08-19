@@ -168,7 +168,7 @@ class Interpreter:
             model=self.model,
             fmt="json",
             temperature=0.0,
-            num_predict=200,
+            num_predict=llm.MAX_INTENT_TOKENS,
         )
         if not content:
             return None
