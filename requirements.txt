@@ -1,5 +1,7 @@
 ollama>=0.6.2
 requests>=2.34.2
+google-api-python-client>=2.170.0
+google-auth-oauthlib>=1.2.1
 pyautogui>=0.9.54
 language-tool-python>=3.4.0
 spotipy>=2.26.0

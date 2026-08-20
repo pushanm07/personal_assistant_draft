@@ -1,4 +1,10 @@
 .spotify_token_cache
+.google_gmail_token.json
+.google_calendar_token.json
 config/spotify.json
+config/key.txt
+config/keys.txt
+config/gmail_api_client_details.json
+config/calendar_api_client_details.json
 __pycache__/
 *.pyc

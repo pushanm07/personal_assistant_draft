@@ -43,7 +43,7 @@ from brain.composer import Composer  # noqa: E402
 from brain.interpreter import Interpreter  # noqa: E402
 
 # Actions that can be completed from the API without desktop/browser automation.
-HEADLESS_ACTIONS = {"answer_question"}
+HEADLESS_ACTIONS = {"answer_question", "get_news", "read_email", "check_calendar"}
 
 # Actions that talk to the Spotify Web API (need an authenticated token).
 SPOTIFY_ACTIONS = {
@@ -199,10 +199,24 @@ def route(payload: TextRequest) -> dict[str, Any]:
     action = decision.get("action", "none")
 
     if action in HEADLESS_ACTIONS:
+        if action == "get_news":
+            from actions.news import get_news
+
+            result = get_news(decision.get("topic"))
+        elif action == "read_email":
+            from actions.gmail import read_email
+
+            result = read_email(decision.get("query", "newer_than:30d"))
+        elif action == "check_calendar":
+            from actions.calendar import check_calendar
+
+            result = check_calendar()
+        else:
+            result = get_answer(payload.text)
         return {
             "decision": decision,
             "execution": "headless",
-            "result": get_answer(payload.text),
+            "result": result,
         }
     if action in SPOTIFY_ACTIONS:
         return {

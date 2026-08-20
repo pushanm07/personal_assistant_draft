@@ -41,6 +41,10 @@ CONFIGURED_ACTIONS = {
     "add_to_playlist",
     "send_message",
     "send_email",
+    "get_news",
+    "read_email",
+    "check_calendar",
+    "create_calendar_event",
     "answer_question",
     "none",
     "set_reminder"
@@ -272,6 +276,7 @@ Examples:
 - "dm zaria on instagram" -> {{"action": "send_message", "recipient": "zaria", "platform": "instagram", "confidence": 0.9}}
 - "what is WPW syndrome" -> {{"action": "answer_question", "topic": "WPW syndrome", "confidence": 0.89}}
 - "remind me tomorrow to call mum" -> {"action":"set_reminder","text":"remind me tomorrow to call mum","confidence":0.95}
+- "tell sesha i love him" -> {{"action": "send_message", "recipient": "sesha", "platform": "auto", "intent": "i love him", "confidence": 0.97}}
 
 Return only JSON and nothing else.
 """
@@ -425,6 +430,32 @@ Return only JSON and nothing else.
                 }
 
         # --- email ---
+        if re.search(r"\b(news|headlines|current events)\b", command):
+            topic_match = re.search(r"\b(?:about|on|for)\s+(.+)$", prompt, flags=re.IGNORECASE)
+            return {
+                "action": "get_news",
+                "topic": topic_match.group(1).strip() if topic_match else None,
+                "confidence": 0.92,
+            }
+
+        if re.search(r"\b(unread|recent|inbox)\s+(?:emails?|mail)\b|\b(?:emails?|mail)\b.*\b(unread|recent|inbox)\b", command):
+            query = "is:unread" if "unread" in command else "newer_than:30d"
+            return {"action": "read_email", "query": query, "confidence": 0.92}
+
+        if re.search(r"\b(draft|send|write)\s+(?:an?\s+)?email\b", command):
+            recipient_match = re.search(r"\bto\s+([^,]+)", prompt, flags=re.IGNORECASE)
+            return {
+                "action": "send_email",
+                "recipient": recipient_match.group(1).strip() if recipient_match else "",
+                "intent": prompt,
+                "confidence": 0.85,
+            }
+
+        if re.search(r"\b(calendar|schedule|upcoming events?)\b", command):
+            if re.search(r"\b(create|schedule)\b", command):
+                return {"action": "create_calendar_event", "text": prompt, "confidence": 0.9}
+            return {"action": "check_calendar", "confidence": 0.92}
+
         if re.search(r"\b(email|mail)\b", command):
             recipient = self._extract_email_recipient(command)
             if recipient:

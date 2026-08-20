@@ -63,6 +63,23 @@ class InterpreterContractTests(unittest.TestCase):
         self.assertNotIn("tell", interpretation["intent"].lower())
         self.assertNotIn("chinmay", interpretation["intent"].lower())
 
+    def test_news_request_is_routed_to_news_action(self) -> None:
+        interpretation = Interpreter().interpret("what are the latest news headlines about technology")
+
+        self.assertEqual(interpretation["action"], "get_news")
+        self.assertEqual(interpretation["topic"], "technology")
+
+    def test_unread_email_request_is_routed_to_gmail_action(self) -> None:
+        interpretation = Interpreter().interpret("show me my unread emails")
+
+        self.assertEqual(interpretation["action"], "read_email")
+        self.assertEqual(interpretation["query"], "is:unread")
+
+    def test_calendar_request_is_routed_to_calendar_action(self) -> None:
+        interpretation = Interpreter().interpret("what is on my calendar")
+
+        self.assertEqual(interpretation["action"], "check_calendar")
+
 
 if __name__ == "__main__":
     unittest.main()

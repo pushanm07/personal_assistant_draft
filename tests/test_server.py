@@ -1,5 +1,6 @@
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -59,6 +60,13 @@ class ServerAPITests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["execution"], "gui")
         self.assertEqual(body["decision"]["action"], "send_message")
+
+    def test_route_calendar_is_headless(self) -> None:
+        with patch("actions.calendar.check_calendar", return_value="No events"):
+            response = self.client.post("/v1/route", json={"text": "what is on my calendar"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["execution"], "headless")
+        self.assertEqual(response.json()["decision"]["action"], "check_calendar")
 
 
 if __name__ == "__main__":

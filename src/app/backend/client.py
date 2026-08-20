@@ -88,6 +88,10 @@ def _brain_actions() -> dict[str, Any]:
             "send_instagram_message": _lazy("actions.instagram.send_message_instagram"),
             "set_reminder": _lazy("actions.reminder.set_reminder"),
             "send_email": _lazy("actions.email.send_email_command"),
+            "get_news": _lazy("actions.news.get_news"),
+            "read_email": _lazy("actions.gmail.read_email"),
+            "check_calendar": _lazy("actions.calendar.check_calendar"),
+            "create_calendar_event": _lazy("actions.calendar.create_calendar_event"),
         }
     return _BRAIN_ACTIONS
 class InProcessClient:
@@ -132,25 +136,21 @@ class InProcessClient:
                     print(f"No contact named {recipient} on IG or WhatsApp.")
 
             def _send_email(recipient, message, platform="auto"):
-                # Allowlist + confirmation live in actions.email; the desktop
-                # app supplies its own GUI confirmation hook instead of the
-                # console prompt.
-                from actions import email as email_actions
+                # The desktop uses Gmail API; the GUI hook is the confirmation
+                # boundary and no send occurs before it returns True.
+                from actions import gmail as gmail_actions
 
                 subject = "Message from ALANA"
                 if self._confirm_email is not None:
-                    if not self._confirm_email(
-                        {
-                            "recipient": recipient,
-                            "subject": subject,
-                            "body": message,
-                        }
-                    ):
-                        print("Email cancelled.")
-                        return
-                    email_actions.send_email(recipient, subject, message, confirm=False)
+                    result = gmail_actions.send_email_with_confirmation(
+                        recipient, subject, message, self._confirm_email
+                    )
                 else:
-                    email_actions.send_email(recipient, subject, message, confirm=True)
+                    from actions import email as email_actions
+
+                    result = email_actions.send_email_command(recipient, message)
+                if result:
+                    print(result)
 
             brain = self._ensure_brain()
             brain._send_message = _send_message  # type: ignore[attr-defined]
@@ -162,7 +162,8 @@ class InProcessClient:
         """Avoid an expensive action-classification pass for normal conversation."""
         return bool(re.search(
             r"\b(open|launch|start|run|play|pause|resume|continue|skip|next|previous|"
-            r"message|text|dm|whatsapp|remind|set reminder|send|email|mail|"
+            r"message|text|dm|tell|whatsapp|remind|set reminder|send|email|mail|"
+            r"news|headlines|inbox|unread|calendar|schedule|upcoming events?|"
             r"playlist|album|add to)\b",
             text,
             flags=re.IGNORECASE,
@@ -188,7 +189,11 @@ class InProcessClient:
                 send_email=brain._send_email,  # type: ignore[attr-defined]
             )
             if executed:
-                return {"kind": "action", "text": "", "handled": True}
+                return {
+                    "kind": "action",
+                    "text": getattr(brain, "last_action_result", ""),
+                    "handled": True,
+                }
             reply = brain.chat(user_text)
             return {"kind": "chat", "text": reply}
         except Exception as exc:

@@ -64,6 +64,7 @@ class Brain:
         self.interpreter = Interpreter()
         self.composer = Composer()
         self.personality = self._load_personality()
+        self.last_action_result: str = ""
 
     @staticmethod
     def _load_personality() -> dict[str, Any]:
@@ -85,6 +86,7 @@ class Brain:
         send_email: Callable[..., None] | None = None,
     ) -> bool:
         """Interpret *prompt* and run a matching action if the registry supports it."""
+        self.last_action_result = ""
         decision = self.think(prompt)
         action = decision.get("action")
 
@@ -179,6 +181,21 @@ class Brain:
                 return True
             return False
 
+        if action in {"get_news", "read_email", "check_calendar", "create_calendar_event"}:
+            handler = actions.get(action)
+            if handler is None:
+                return False
+            if action == "get_news":
+                result = handler(decision.get("topic"))
+            elif action == "read_email":
+                result = handler(decision.get("query", "newer_than:30d"))
+            elif action == "create_calendar_event":
+                result = handler(decision.get("text", prompt))
+            else:
+                result = handler()
+            self.last_action_result = result if isinstance(result, str) else ""
+            return True
+
 
         if action in actions:
             actions[action]()
@@ -205,11 +222,11 @@ class Brain:
             f"You are {name}, {address_hint}'s personal AI assistant — think "
             f"J.A.R.V.I.S. Your tone is {tone}. You may address the user as "
             f"{address_hint}.\n\n"
-            "You are talking directly to your user, not executing a command. "
+            "You are talking directly to your user (who is always your boss, Pushan), not executing a command. "
             "Reply conversationally and helpfully in your own voice.\n\n"
             "Style rules:\n"
             "- Be genuinely helpful and answer directly from your own knowledge.\n"
-            "- Keep it short and natural — usually one to three sentences.\n"
+            "- Keep it short and natural — usually one to four sentences.\n"
             "- No filler openers, no lists unless truly needed, no emojis.\n"
             f"{rules_block}"
         )
